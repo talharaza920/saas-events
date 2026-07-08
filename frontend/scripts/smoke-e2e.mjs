@@ -160,12 +160,28 @@ await sleep(300);
 ok("landing: renders without a guest link", await visibleHas("Alex & Sam"));
 await page.screenshot({ path: `${OUT}/landing.png` });
 
-// --- 5. Admin dashboard (dev-token auth) -------------------------------------
-await page.goto("http://localhost:3000/admin", { waitUntil: "networkidle0" });
+// --- 5. Post-login dashboard (dev-token auth; platform era) ------------------
+await page.goto("http://localhost:3000/dashboard", { waitUntil: "networkidle0" });
+await sleep(1500);
+await page.screenshot({ path: `${OUT}/dashboard.png` });
+ok("dashboard: lists the seeded wedding", await visibleHas("Alex & Sam"));
+ok("dashboard: shows the owner role chip", await visibleHas("owner"));
+
+// --- 6. Wedding-scoped admin dashboard ----------------------------------------
+await page.goto("http://localhost:3000/alex-and-sam/admin", { waitUntil: "networkidle0" });
 await sleep(1800);
 await page.screenshot({ path: `${OUT}/admin-overview.png` });
-ok("admin: dashboard loads via dev token", await visibleHas("Alex & Sam"));
+ok("admin: wedding dashboard loads via dev token", await visibleHas("Alex & Sam"));
 ok("admin: shows the new RSVP", await visibleHas("guests coming"));
+ok("admin: lifecycle strip shows published state", await visibleHas("Published (guest links live)"));
+ok("admin: Team tab present", await visibleHas("Team ("));
+
+// --- 7. Platform console --------------------------------------------------------
+await page.goto("http://localhost:3000/platform", { waitUntil: "networkidle0" });
+await sleep(1500);
+await page.screenshot({ path: `${OUT}/platform-console.png` });
+ok("platform: console loads for the dev platform admin", await visibleHas("Platform console"));
+ok("platform: weddings table lists the tenant", await visibleHas("/alex-and-sam"));
 
 await browser.close();
 const failed = results.filter((r) => !r.pass);

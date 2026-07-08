@@ -5,6 +5,41 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-09 — Phases 1–5: identity/tenancy build gotchas
+**Server log lines must be ASCII.** A `print(f"[email → …]")` in the emailer
+500'd `submit-approval`/`approve` on the live server (Windows console =
+cp1252; `→` raises `UnicodeEncodeError`) while every test passed — tests
+don't print to a real console. Committed state + failed response = confusing
+half-applied transitions. `send_email` now encodes ASCII-with-replace inside
+try/except; treat any post-commit side effect (email, logging) as
+must-never-raise.
+
+**Local multi-user auth without Supabase:** the dev bearer token grew a
+composite form — `<token>` = the bootstrap platform admin (sub `dev`),
+`<token>:<email>` = an ordinary user (sub `dev:<email>`). All membership /
+cross-tenant / invite flows are exercisable offline; tests in
+`tests/helpers.py` (`platform_auth()` / `user_auth(email)`) build on it. The
+composite compare is still `secrets.compare_digest`, still refused in
+production/Vercel.
+
+**One module-level `setAdminWedding(slug)` beats threading a prop through 17
+panels.** The admin panels all import the `adminApi` singleton; the
+`[weddingSlug]` route sets the slug once (render-time side effect, idempotent,
+one dashboard mounted at a time) and `req()` builds
+`/api/w/{slug}/admin/...`. If dashboards ever render side-by-side this must
+become context/per-instance clients.
+
+**Next route-segment config can't be re-exported.** The wedding-scoped invite
+route (`/{weddingSlug}/i/[guestSlug]`) re-exports the canonical page component
++ `generateMetadata`, but `export { dynamic } from ...` is a build error —
+declare `export const dynamic = "force-dynamic"` literally in each route file.
+
+**Authz status-code contract (pin it in tests):** unauthenticated 401; a
+non-member gets 404 (never confirm a wedding exists); a member below the
+required role gets 403; suspended = reads OK / writes 403; archived = 404 for
+members, visible to platform admins. `tests/test_identity_authz.py` is the
+spec.
+
 ## 2026-07-08 — Phase 0 fork: scrub before the first push
 **Context:** This repo was forked from a private single-wedding build whose
 seed data, tests, docs, and assets were full of personal facts.

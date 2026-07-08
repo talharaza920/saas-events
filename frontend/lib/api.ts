@@ -37,6 +37,23 @@ export async function fetchLanding(): Promise<LandingResponse | null> {
 }
 
 /**
+ * Fetch one wedding's public landing copy (`/{weddingSlug}` page). Returns null
+ * when the wedding isn't live (draft/unpublished/suspended/archived all look the
+ * same) so the route can 404 neutrally.
+ */
+export async function fetchWeddingLanding(weddingSlug: string): Promise<LandingResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/w/${encodeURIComponent(weddingSlug)}/landing`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as LandingResponse;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch the invitation payload for a guest slug. Throws {@link InviteNotFound}
  * on 404 so the route can render its not-found UI. No caching — RSVP state and
  * content must be fresh per request.

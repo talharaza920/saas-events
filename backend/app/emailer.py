@@ -33,4 +33,9 @@ def send_email(settings: Settings, to: str, subject: str, body: str) -> None:
     email = OutboundEmail(to=to, subject=subject, body=body)
     OUTBOX.append(email)
     del OUTBOX[:-_OUTBOX_CAP]
-    print(f"[email → {to}] {subject}")
+    try:
+        # ASCII-only log line: a Windows console defaults to cp1252, where a
+        # non-ASCII char in print() raises and would 500 the request.
+        print(f"[email to {to}] {subject}".encode("ascii", "replace").decode())
+    except Exception:
+        pass

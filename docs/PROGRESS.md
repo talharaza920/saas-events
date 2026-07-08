@@ -4,75 +4,150 @@ The resumable source of truth for platform work. Phases are defined in
 `SAAS_PLAN.md`. The predecessor build's milestone history (M1–M14) lives in
 that private repo, not here.
 
-_Last updated: 2026-07-08 (Phase 0 fork + scrub + hardening)._
+_Last updated: 2026-07-09 (Phases 1–5 built & tested locally)._
+
+## Where things stand (one paragraph)
+
+Phases 1–5 are **code-complete and tested on local SQLite**: accounts +
+memberships gate every admin endpoint (wedding-scoped
+`/api/w/{slug}/admin/*`), self-serve creation/approval/publish works
+end-to-end, co-admin invites/transfer/revoke work, the platform console
+(`/platform`) runs the whole lifecycle, and plans/entitlements are enforced
+server-side. **Nothing is provisioned in the cloud yet** — Supabase (auth +
+Postgres + storage), Vercel, WAF rate limits, a real email provider, and
+Sentry are the remaining infrastructure work, deliberately deferred until RT
+creates those accounts. Suite: **213 pytest** (offline) + **20/20 E2E smoke**
+checks (`frontend/scripts/smoke-e2e.mjs` against local dev servers);
+`tsc`/`eslint`/`next build` clean.
 
 ## Phase 0 — Fork, personal-data scrub, security hardening
 
-**Status: nearly complete — remaining items need the fresh infrastructure.**
+**Status: code complete (2026-07-08). Remaining items = fresh infrastructure.**
 
-### 0.1 Fork & fresh infrastructure
-- [x] Tree copied from the predecessor repo, excluding reference material,
-  env/secret files, `dev.db`, and all personal images (2026-07-08).
-- [x] Fresh squashed git history — no personal data in any commit; pushed to
-  GitHub (private).
-- [ ] New Supabase project (nothing provisioned yet).
-- [ ] New Vercel projects (frontend + backend) + env vars; `hnd1` region
-  pinning is already in both `vercel.json`s.
-
-### 0.2 Personal-data & branding scrub — DONE 2026-07-08
-- [x] `backend/app/seed_data.py` → neutral "Alex & Sam" starter template
-  (slug `alex-and-sam`; text-only story beats — owners upload their own art).
-- [x] Backend tests/fixtures/docstrings neutralized; `admin_emails` default
-  now empty (fail-closed).
-- [x] Frontend: mascot generalized (badge component renamed to `MascotBadge`; the built-in
-  cat glyph stays as neutral default art, per RT's 2026-07-08 decision);
-  render fallbacks, admin helper texts, and metadata neutralized; theme
-  template renamed **"Ever after"**; dev-script paths de-personalized.
-- [x] Docs: README/CLAUDE rewritten; fresh LEARNINGS (curated carry-overs) and
-  PROGRESS; PLAN/DESIGN/SAAS_PLAN/REFERENCE_RESEARCH de-personalized.
-- [x] `openapi.json` + `frontend/types/api.ts` regenerated post-scrub.
-- [x] Final case-insensitive sweep: zero personal hits (term list deliberately
-  lives only in the predecessor repo's SAAS_PLAN).
-
-### 0.3 Security hardening (2026-07-08 review) — code items DONE
-- [x] P1-1 dev-token bypass: refused whenever `VERCEL` is set; constant-time
-  compare (`app/auth.py`).
-- [x] P1-3 guest payload allowlist: `event_details`/`content` keys filtered in
-  `routers/invite.py` — `capacity` and any owner-only key never reach guests.
-- [x] P1-4 bounded RSVP answers: known shapes only, 2 000-char text cap,
-  choices/list caps, duplicate `question_id` rejection (`app/schemas.py`).
-- [x] P2-5 security headers (CSP, nosniff, Referrer-Policy, frame denial) in
-  `next.config.ts`.
-- [x] P2-6 `next/image` pinned to the exact Supabase host (derived from
-  `NEXT_PUBLIC_SUPABASE_URL`; no more `*.supabase.co` wildcard).
-- [x] P2-7 guest contacts masked on `GET /api/i/{slug}`; a posted masked value
-  means "unchanged".
-- [x] Tests: `tests/test_security_hardening.py` + masking coverage in
-  `test_invite_api.py`. Suite: **157 passed**; `tsc`/`eslint`/`next build`
-  clean.
-- [ ] P1-2 rate limiting via Vercel WAF (dashboard work — when the Vercel
-  projects exist).
-- [ ] P2-8 keep Next.js on the latest patch (recurring chore).
-- [ ] P3 backlog: trim `/health`, Content-Length check before reading uploads,
+- [x] Tree copied, scrubbed, squashed history, pushed (private GitHub).
+- [x] P1/P2 security hardening merged (dev-token guards, guest payload
+  allowlist, bounded RSVP answers, CSP/nosniff/referrer headers, pinned image
+  host, contact masking). Tests green.
+- [ ] New Supabase project + new Vercel projects + env vars (**blocked on RT
+  creating the accounts** — everything below runs locally meanwhile).
+- [ ] P1-2 rate limiting via Vercel WAF (dashboard work, when Vercel exists).
+- [ ] P2-8 Next.js patch chore (recurring).
+- [ ] P3 backlog: trim `/health`, Content-Length pre-check on uploads,
   admin-auth failure logging, drop `x-upsert` on Storage uploads.
-- Note: the ⚠ cherry-picks back to the live predecessor deployment are tracked
-  in THAT repo, not here.
 
-### Exit criteria (SAAS_PLAN.md)
-- [x] Grep sweep zero; P1+P2 code hardening merged; tests green.
-- [ ] Boots against a fresh Supabase with the neutral seeded wedding (blocked
-  on 0.1 infrastructure).
+## Phase 1 — Identity & tenancy core — DONE (local) 2026-07-09
 
-## Phase 1 — Identity & tenancy core
-Not started.
+- [x] Schema (`e0a1b2c3d4e5` migration, RLS-enabled): `profiles`,
+  `wedding_members` (owner/admin × invited/active/revoked + hashed invite
+  tokens), `platform_admins`, `audit_log`, `platform_settings`;
+  `weddings.published` + `weddings.settings` (+ backfill for active rows).
+- [x] Auth (`app/auth.py`): any **verified** user is a principal (membership
+  does the gating); unverified email → 403. Local dev token grew a
+  `<token>:<email>` multi-user form (see LEARNINGS).
+- [x] Authz seams (`app/authz.py`): `require_wedding(role, edit)` resolves the
+  tenant from the path — non-member **404**, under-role **403**, suspended =
+  read-only, archived hidden; `require_platform_admin` (+ `ADMIN_EMAILS`
+  bootstrap fallback); lazy profile upsert (no DB trigger needed).
+- [x] Admin API moved to `/api/w/{wedding_slug}/admin/*`; `/api/me` +
+  `/api/me/weddings`; audit-log helper (`app/audit_log.py`) wired through
+  mutating endpoints.
+- [x] Frontend: `/{weddingSlug}/admin` dashboard (module-level
+  `setAdminWedding`), post-login `/dashboard` (weddings + role chips),
+  `/admin` → redirect. Reserved-slug blocklist (`app/slugs.py`).
+- [ ] Supabase Auth config itself (Google + email/password + verification
+  emails) — needs the Supabase project. The backend already enforces
+  verified-email and the frontend sign-in flow is unchanged from Phase 0.
 
-## Phase 2+
-Not started — see `SAAS_PLAN.md`.
+## Phase 2 — Self-serve creation & approval — DONE (local) 2026-07-09
+
+- [x] `POST /api/weddings` from the neutral template (`app/wedding_factory.py`
+  — personalises names, seeds questions/arc, grants owner membership, status
+  `draft`); live `GET /api/weddings/slug-check`; `/create` wizard page.
+- [x] Approval workflow (`app/approval.py`): submit → rules evaluate →
+  auto-approve (when on) or manual queue; rule trace stored in audit + shown
+  in the console. Rules blob in `platform_settings` (editable from
+  `/platform` → Rules): auto_approve, account age, weddings/account, guest
+  count, banned words.
+- [x] Approve / deny(+reason) / suspend / reinstate endpoints + emails (dev
+  outbox). Suspension: guests get the same neutral 404 as "never existed";
+  dashboard goes read-only with a banner.
+- [x] **Publish** independent of approval (owner-only by default; owner can
+  grant to admins via `settings.admins_can_publish`). Guests resolve only
+  active AND published weddings.
+- [x] Cold-start demo verified live: new (dev) user → create → submit →
+  approve → publish → guest opens invite and RSVPs.
+- [ ] Terms/privacy placeholder pages (owed before public launch, per plan).
+
+## Phase 3 — Co-admins & team management — DONE (local) 2026-07-09
+
+- [x] Members tab (dashboard "Team") + API: invite by email (single-use,
+  sha256-hashed, 7-day token; accept path returned + emailed), accept requires
+  the matching signed-in email, role change, revoke (immediate — checked
+  per-request), two-step ownership transfer, last-owner protection.
+- [x] Owner soft-delete → `archived` (unpublished, hidden); platform admin
+  reinstates within the undo window. (Hard purge after 30 days = an ops job
+  once real infra exists.)
+- [x] Two-account flows covered in `tests/test_members_api.py`.
+
+## Phase 4 — Platform console — DONE (local) 2026-07-09
+
+- [x] `/platform` (platform-admin only) with tabs: **Weddings** (status,
+  owner, member/guest counts, plan selector, approve/suspend/reinstate,
+  view-as link), **Approvals** (rule-trace chips, approve / deny-with-reason),
+  **Users** (weddings per account, disable/enable), **Plans**, **Rules**
+  (auto-approval editor), **Ops** (status tiles + audit tail).
+- [x] API `/api/platform/*`: weddings, approvals, settings, users (+disable),
+  platform-admin grant/revoke, stats, audit.
+- [ ] "View as" is currently just platform access to the wedding dashboard —
+  a visual banner + per-view audit entry is still to add.
+
+## Phase 5 — Plans & entitlements — DONE (local) 2026-07-09
+
+- [x] `plans` + `wedding_plans` (overrides, `valid_until`) tables;
+  `app/entitlements.py` merge: defaults ∪ default-plan ∪ assigned-plan ∪
+  overrides.
+- [x] Enforcement on **create only** (never retroactively destructive):
+  guests (create + import), custom questions, story arcs, member invites;
+  feature toggles: export / import / wishes (guest guestbook 404s neutrally);
+  `max_weddings_per_account` at creation.
+- [x] Entitlements block surfaced in `/api/w/{slug}/admin/me`; friendly 403
+  detail with a dormant "contact us" upgrade hint. Plans editor + per-wedding
+  assignment in the console.
+- [ ] `max_storage_mb` is defined but not yet metered (needs Supabase Storage
+  usage accounting — per-upload caps exist from Phase 0).
+
+## Phase 6 (billing) / Phase 7 (growth) — not started (by design)
+
+## Test & verification status (2026-07-09)
+
+- `pytest`: **213 passed** (offline, in-memory SQLite) — includes the
+  authz matrix, lifecycle, members, platform console, entitlements, and the
+  pre-platform suites migrated to wedding-scoped paths. Cross-tenant
+  negatives throughout (`test_identity_authz.py` is the status-code spec).
+- Frontend: `tsc --noEmit`, `eslint .`, `next build` clean.
+- E2E smoke (`node scripts/smoke-e2e.mjs`, needs both dev servers +
+  `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,
+  full family RSVP persisted, landing, dashboard, wedding admin (lifecycle
+  strip, Team tab), platform console.
+
+## Infrastructure TODO (when RT provisions accounts)
+
+1. Supabase project → run `alembic upgrade head`, configure Google OAuth +
+   email/password with verification, storage bucket, env vars; seed RT's
+   platform-admin row.
+2. Vercel frontend + backend projects (hnd1), env vars, WAF rate rules (P1-2).
+3. Email provider (Resend) → swap into `app/emailer.py` (single seam).
+4. Sentry (frontend + FastAPI), uptime check on `/health`.
+5. Staging Supabase + Vercel preview envs; PITR/backups on from first real user.
 
 ## Decisions log
+- **2026-07-09:** all phases built & tested locally first (RT: provision
+  Supabase/Vercel later); email = dev outbox until a provider exists; dev
+  token composite form for local multi-user; authz status-code contract
+  (404 non-member / 403 under-role) pinned in tests.
 - **2026-07-08 (RT):** mascot generalized (not stripped) as an optional theme
   feature with the built-in cat glyph as neutral default art; working name
   **saas-events**; repo GitHub (private).
 - **Open (owed by RT):** final platform name + domain; auth breadth beyond
-  Google + email/password (Phase 1); publish-rights default (Phase 3);
-  terms/privacy approach (before Phase 2 goes public).
+  Google + email/password (Phase 1); publish-rights default is owner-only
+  (confirm, Phase 3); terms/privacy approach (before Phase 2 goes public).

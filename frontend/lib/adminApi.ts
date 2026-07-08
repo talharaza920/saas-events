@@ -5,12 +5,29 @@ import type { components } from "@/types/api";
 import { getToken } from "./adminAuth";
 
 /**
- * Typed client for the owner-authenticated admin API (/api/admin/*). Every call
- * attaches the bearer token from {@link getToken}. The backend is the source of
- * truth for authorization (verifies the JWT + email allowlist) — this layer just
- * transports.
+ * Typed client for the wedding-scoped admin API (/api/w/{weddingSlug}/admin/*).
+ * Every call attaches the bearer token from {@link getToken}. The backend is the
+ * source of truth for authorization (membership rows checked per request) — this
+ * layer just transports.
+ *
+ * The dashboard route sets the active wedding once via {@link setAdminWedding}
+ * (from its `[weddingSlug]` route param) before rendering any panel; the module
+ * singleton keeps the 17 panel components' imports unchanged. Only one dashboard
+ * is ever mounted at a time, so a module-level slug is safe.
  */
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+let _weddingSlug: string | null = null;
+
+/** Set the wedding whose dashboard is being rendered (route param). */
+export function setAdminWedding(slug: string): void {
+  _weddingSlug = slug;
+}
+
+function adminBase(): string {
+  if (!_weddingSlug) throw new Error("setAdminWedding() has not been called");
+  return `${API_BASE}/api/w/${encodeURIComponent(_weddingSlug)}/admin`;
+}
 
 import type { AnswerValue } from "./rsvp";
 
@@ -63,6 +80,9 @@ export type ResponseAdmin = Omit<
 export type WishAdmin = components["schemas"]["WishAdmin"];
 export type BulkResult = components["schemas"]["BulkResult"];
 export type ImportResult = components["schemas"]["ImportResult"];
+export type LifecycleResult = components["schemas"]["LifecycleResult"];
+export type MemberAdmin = components["schemas"]["MemberAdmin"];
+export type MemberInvited = components["schemas"]["MemberInvited"];
 // openapi-typescript renders `dict[str, Any]` JSON columns as `Record<string,
 // never>`, which can't hold real values. Override those fields with a usable
 // object type (the backend accepts any JSON).
@@ -108,7 +128,7 @@ async function detail(res: Response): Promise<string | undefined> {
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getToken();
   if (!token) throw new AdminAuthError("Not signed in");
-  const res = await fetch(`${API_BASE}/api/admin${path}`, {
+  const res = await fetch(`${adminBase()}${path}`, {
     ...init,
     // The admin GETs (guests/summary/…) come back without Cache-Control, so the
     // browser may serve a stale cached copy — which made the table not reflect
@@ -191,6 +211,24 @@ export const adminApi = {
   uploadImage: (file: File) => uploadImage(file),
 
   importGuests: (file: File, commit: boolean) => importGuests(file, commit),
+
+  // --- Wedding lifecycle (Phase 2) ---------------------------------------
+  submitApproval: () => req<LifecycleResult>("/submit-approval", { method: "POST" }),
+  setPublished: (published: boolean) =>
+    req<LifecycleResult>("/publish", { method: "POST", body: JSON.stringify({ published }) }),
+  updateWeddingSettings: (s: { admins_can_publish?: boolean }) =>
+    req<Record<string, unknown>>("/settings", { method: "PATCH", body: JSON.stringify(s) }),
+  archiveWedding: () => req<LifecycleResult>("", { method: "DELETE" }),
+
+  // --- Members (Phase 3) --------------------------------------------------
+  listMembers: () => req<MemberAdmin[]>("/members"),
+  inviteMember: (email: string, role: "owner" | "admin" = "admin") =>
+    req<MemberInvited>("/members", { method: "POST", body: JSON.stringify({ email, role }) }),
+  updateMemberRole: (id: string, role: "owner" | "admin") =>
+    req<MemberAdmin>(`/members/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  revokeMember: (id: string) => req<MemberAdmin>(`/members/${id}`, { method: "DELETE" }),
+  transferOwnership: (id: string) =>
+    req<MemberAdmin>(`/members/${id}/transfer-ownership`, { method: "POST" }),
 };
 
 /** Upload a guest spreadsheet (CSV/XLSX). `commit=false` is a dry-run preview. */
@@ -199,7 +237,7 @@ async function importGuests(file: File, commit: boolean): Promise<ImportResult> 
   if (!token) throw new AdminAuthError("Not signed in");
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/api/admin/import?commit=${commit ? 1 : 0}`, {
+  const res = await fetch(`${adminBase()}/import?commit=${commit ? 1 : 0}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -221,7 +259,7 @@ async function uploadImage(file: File): Promise<string> {
   if (!token) throw new AdminAuthError("Not signed in");
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/api/admin/upload`, {
+  const res = await fetch(`${adminBase()}/upload`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: form,
@@ -237,7 +275,7 @@ async function uploadImage(file: File): Promise<string> {
 async function downloadAuthed(path: string, filename: string): Promise<void> {
   const token = await getToken();
   if (!token) throw new AdminAuthError("Not signed in");
-  const res = await fetch(`${API_BASE}/api/admin/${path}`, {
+  const res = await fetch(`${adminBase()}/${path}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${token}` },
   });

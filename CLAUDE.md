@@ -92,11 +92,25 @@ for **local SQLite** (`sqlite:///./dev.db`); delete it to hit **Supabase**.
 - Typecheck: `npx tsc --noEmit` · Lint: `npx eslint .`.
 - Regenerate API types (after backend schema changes):
   `npx openapi-typescript ../backend/openapi.json -o types/api.ts`.
-- Guest invite route: `/i/[guestSlug]` — needs the backend running
-  (`NEXT_PUBLIC_API_URL` / `API_BASE`, default `http://localhost:8000`).
-- Admin route: `/admin` (owner-only). **Local:** set the same token in
-  `backend/.env.local` (`DEV_ADMIN_TOKEN`) and `frontend/.env.local`
-  (`NEXT_PUBLIC_DEV_ADMIN_TOKEN`) — the dashboard then skips Google sign-in.
-  **Production:** Supabase auth restricted to `ADMIN_EMAILS`; the dev token is
-  refused when `ENVIRONMENT=production`. API lives under `/api/admin/*`
+- Guest invite route: `/i/[guestSlug]` (also `/{weddingSlug}/i/[guestSlug]` —
+  cosmetic; the guest slug alone carries the tenant) — needs the backend
+  running (`NEXT_PUBLIC_API_URL` / `API_BASE`, default `http://localhost:8000`).
+- App routes (Phase 1+): `/dashboard` (post-login home, weddings + roles),
+  `/create` (wizard), `/{weddingSlug}/admin` (wedding dashboard), `/platform`
+  (super-admin console), `/invites/accept` (co-admin invites). `/admin`
+  redirects to `/dashboard`.
+- Auth. **Local:** set the same token in `backend/.env.local`
+  (`DEV_ADMIN_TOKEN`) and `frontend/.env.local` (`NEXT_PUBLIC_DEV_ADMIN_TOKEN`).
+  The bare token = bootstrap platform admin (sub `dev`, seeded as owner of the
+  template wedding by `dev_setup`); `<token>:<email>` simulates an ordinary
+  user for multi-account flows. Refused when `ENVIRONMENT=production` or on
+  Vercel. **Production:** Supabase sessions; membership rows (not an email
+  allowlist) gate each wedding; `ADMIN_EMAILS` is only the platform-admin
+  bootstrap. Admin API: `/api/w/{weddingSlug}/admin/*`; platform API:
+  `/api/platform/*`; account API: `/api/me`, `/api/weddings`
   (auth header: `Authorization: Bearer <token>`).
+- Authz status codes are a contract (see `tests/test_identity_authz.py`):
+  401 unauthenticated · 404 non-member (existence hidden) · 403 under-role /
+  suspended-write · archived hidden from members.
+- E2E smoke: `node scripts/smoke-e2e.mjs` from `frontend/` (needs both dev
+  servers + a `dev_setup`-seeded DB).
