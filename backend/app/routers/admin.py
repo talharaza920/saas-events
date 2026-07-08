@@ -1,33 +1,29 @@
-"""Owner-authenticated admin API. Everything here is gated by
-`app.auth.get_current_owner` and scoped to the owner's wedding.
+"""Wedding-scoped admin API (dashboard). Every endpoint lives under
+`/api/w/{wedding_slug}/admin/*`; the tenant is resolved FROM THE PATH and access
+is granted by an active membership row (or platform admin) — see app/authz.py.
 
-  GET    /api/admin/me                      → whoami + which wedding
-  GET    /api/admin/guests                  → guest list (tier + RSVP rollup)
-  POST   /api/admin/guests                  → add a guest (generates a link slug)
-  PATCH  /api/admin/guests/{id}             → edit a guest (incl. tier)
-  DELETE /api/admin/guests/{id}             → remove a guest (+ its RSVP)
-  GET    /api/admin/questions               → custom RSVP questions
-  POST   /api/admin/questions               → add a question
-  PATCH  /api/admin/questions/{id}          → edit a question
-  DELETE /api/admin/questions/{id}          → remove a question
-  GET    /api/admin/responses               → all submitted RSVPs (detail)
-  GET    /api/admin/summary                 → counts + headcount + dietary breakdown
-  GET    /api/admin/wishes                  → guestbook messages (incl. hidden)
-  PATCH  /api/admin/wishes/{id}             → approve / hide a message
-  DELETE /api/admin/wishes/{id}             → remove a message
-  GET    /api/admin/export.xlsx             → guest+RSVP workbook (dropdowns)
-  GET    /api/admin/template.xlsx           → fillable import template
-  POST   /api/admin/import                  → upsert from a split-row workbook
-  PUT    /api/admin/guests/{id}/rsvp        → owner override of a guest's RSVP
+  GET    …/me                → whoami + role + lifecycle + entitlements
+  CRUD   …/guests, …/questions, …/story-arcs, …/wishes, …/content
+  GET    …/responses, …/summary*   → RSVP rollups
+  GET    …/export.xlsx, …/template.xlsx; POST …/import
+  PUT    …/guests/{id}/rsvp  → owner override of a guest's RSVP
+  POST   …/submit-approval   → draft → pending_approval (auto-rules may activate)
+  POST   …/publish           → toggle publication (active weddings only)
+  PATCH  …/settings          → per-wedding admin settings (owner)
+  DELETE …/                  → soft-delete (archive) the wedding (owner)
+  CRUD   …/members           → co-admin management (owner; Phase 3)
 
+Reads stay available on a suspended wedding; mutations 403 (read-only mode).
 Unlike the guest API, the admin DOES see/set `invite_tier` — the owner authors
-the invites. Tenant scoping: the owner resolves to exactly one wedding (v1 has a
-single seeded wedding); every query filters by that `wedding_id`.
+the invites. Every query still filters by `wedding_id` (belt-and-braces under
+the path-based scoping).
 """
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
+import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -41,10 +37,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import export_import
 from app.answers import is_party_question, person_question_applies
+from app.approval import evaluate_auto_approval
 from app.audit import SOURCE_ADMIN, SOURCE_IMPORT, stamp_rsvp
-from app.auth import Owner, get_current_owner
+from app.audit_log import record
+from app.authz import WeddingCtx, require_wedding
 from app.config import Settings, get_settings
 from app.db import get_db
+from app.emailer import send_email
+from app.entitlements import check_limit, effective_entitlements, require_feature
 from app.guest_import import make_guest_slug
 from app.models import (
     Answer,
@@ -52,6 +52,9 @@ from app.models import (
     CompanionKind,
     Guest,
     InviteTier,
+    MemberRole,
+    MemberStatus,
+    Profile,
     Question,
     QuestionApplies,
     QuestionScope,
@@ -60,11 +63,21 @@ from app.models import (
     Rsvp,
     StoryArc,
     Wedding,
+    WeddingMember,
+    WeddingStatus,
     Wish,
 )
 from app.tenancy import capabilities_for, clamp_party_members
 from app.schemas import (
     AdminMe,
+    LifecycleResult,
+    MemberAdmin,
+    MemberInviteCreate,
+    MemberInvited,
+    MemberRoleUpdate,
+    PublishUpdate,
+    RuleTraceEntry,
+    WeddingSettingsUpdate,
     AdminSummary,
     AnswerAdmin,
     BulkGuestIds,
@@ -101,38 +114,25 @@ from app.schemas import (
 from app.storage import UploadError, save_image
 from app.validation import ContactError, normalize_email, normalize_phone
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(prefix="/api/w/{wedding_slug}/admin", tags=["admin"])
 
 
-# --- Tenant resolution -----------------------------------------------------
-def owner_wedding(
-    owner: Owner = Depends(get_current_owner), db: Session = Depends(get_db)
-) -> Wedding:
-    """Resolve the authenticated owner to their wedding.
+# --- Tenant resolution (the authz seam, SAAS_PLAN 1.3) -----------------------
+# Three grades of access, all resolving the wedding from the path:
+#   member_ctx / member_wedding — any active member; works even when suspended
+#   editor_ctx / editable_wedding — any active member; 403 while suspended
+#   owner_ctx — owner-only mutations (members, lifecycle, delete)
+member_ctx = require_wedding("admin")
+editor_ctx = require_wedding("admin", edit=True)
+owner_ctx = require_wedding("owner", edit=True)
 
-    v1 is single-tenant: prefer a wedding already owned by this principal; else
-    fall back to the sole seeded wedding and claim it (only for a real Supabase
-    login — the shared dev token never claims ownership).
 
-    THIS IS THE PER-WEDDING AUTHZ SEAM. The future two-tier admin model (PLAN.md)
-    plugs in here: replace the `owner_id ==` check with a `wedding_members`
-    membership lookup, and add a separate `require_platform_admin` dependency for
-    cross-tenant / wedding-approval actions. Everything else stays unchanged.
-    """
-    owned = db.execute(
-        select(Wedding).where(Wedding.owner_id == owner.sub)
-    ).scalars().all()
-    if owned:
-        return owned[0]
+def member_wedding(ctx: WeddingCtx = Depends(member_ctx)) -> Wedding:
+    return ctx.wedding
 
-    weddings = db.execute(select(Wedding)).scalars().all()
-    if len(weddings) == 1:
-        wedding = weddings[0]
-        if wedding.owner_id is None and owner.via == "supabase":
-            wedding.owner_id = owner.sub
-            db.commit()
-        return wedding
-    raise HTTPException(status_code=404, detail="No wedding for this owner")
+
+def editable_wedding(ctx: WeddingCtx = Depends(editor_ctx)) -> Wedding:
+    return ctx.wedding
 
 
 def _validated_arc_ids(db: Session, wedding: Wedding, arc_ids) -> list[str]:
@@ -323,21 +323,35 @@ def _deep_merge(base: dict, patch: dict) -> dict:
 
 
 # --- Whoami ----------------------------------------------------------------
+def _can_publish(ctx: WeddingCtx) -> bool:
+    """Publish rights: owner (and platform admin) always; a co-admin only when
+    the owner granted it via the per-wedding `admins_can_publish` setting."""
+    if ctx.role in ("owner", "platform"):
+        return True
+    return bool((ctx.wedding.settings or {}).get("admins_can_publish"))
+
+
 @router.get("/me", response_model=AdminMe)
-def me(owner: Owner = Depends(get_current_owner), wedding: Wedding = Depends(owner_wedding)) -> AdminMe:
+def me(ctx: WeddingCtx = Depends(member_ctx), db: Session = Depends(get_db)) -> AdminMe:
+    wedding = ctx.wedding
     return AdminMe(
-        email=owner.email,
-        via=owner.via,
+        email=ctx.user.email,
+        via=ctx.user.via,
         wedding_id=wedding.id,
         wedding_slug=wedding.slug,
         couple_names=wedding.couple_names,
+        role=ctx.role,
+        wedding_status=wedding.status,
+        published=wedding.published,
+        can_publish=_can_publish(ctx),
+        entitlements=effective_entitlements(db, wedding),
     )
 
 
 # --- Guests ----------------------------------------------------------------
 @router.get("/guests", response_model=list[GuestAdmin])
 def list_guests(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> list[GuestAdmin]:
     guests = (
         db.execute(
@@ -353,9 +367,10 @@ def list_guests(
 @router.post("/guests", response_model=GuestAdmin, status_code=201)
 def create_guest(
     payload: GuestCreate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> GuestAdmin:
+    check_limit(db, wedding, "max_guests", _guest_count(db, wedding))
     contacts = _validated_contacts(payload)
     tier = InviteTier(payload.invite_tier)
     guest = Guest(
@@ -383,6 +398,12 @@ def create_guest(
     return _guest_admin(guest, _question_meta(db, wedding), wedding.content)
 
 
+def _guest_count(db: Session, wedding: Wedding) -> int:
+    return db.execute(
+        select(func.count()).select_from(Guest).where(Guest.wedding_id == wedding.id)
+    ).scalar_one()
+
+
 def _get_owned_guest(db: Session, wedding: Wedding, guest_id: UUID) -> Guest:
     guest = db.execute(
         select(Guest).where(Guest.id == guest_id, Guest.wedding_id == wedding.id)
@@ -396,7 +417,7 @@ def _get_owned_guest(db: Session, wedding: Wedding, guest_id: UUID) -> Guest:
 def update_guest(
     guest_id: UUID,
     payload: GuestUpdate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> GuestAdmin:
     guest = _get_owned_guest(db, wedding, guest_id)
@@ -432,7 +453,7 @@ def update_guest(
 @router.delete("/guests/{guest_id}", status_code=204)
 def delete_guest(
     guest_id: UUID,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> Response:
     guest = _get_owned_guest(db, wedding, guest_id)
@@ -495,10 +516,11 @@ def _set_rsvp_status(
 def set_guest_rsvp(
     guest_id: UUID,
     payload: GuestRsvpUpdate,
-    owner: Owner = Depends(get_current_owner),
-    wedding: Wedding = Depends(owner_wedding),
+    ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
 ) -> GuestAdmin:
+    wedding = ctx.wedding
+    owner = ctx.user
     """Owner override of a guest's RSVP (status + the whole party). Lets the couple
     record a response on a guest's behalf or correct one. `pending` removes the RSVP;
     `declined` keeps it but clears the party; `attending` sets the primary's own +
@@ -592,12 +614,12 @@ def _owned_guests_in(db: Session, wedding: Wedding, ids: list[UUID]) -> list[Gue
 @router.post("/guests/bulk/rsvp", response_model=BulkResult)
 def bulk_set_rsvp(
     payload: BulkRsvpUpdate,
-    owner: Owner = Depends(get_current_owner),
-    wedding: Wedding = Depends(owner_wedding),
+    ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
 ) -> BulkResult:
     """Set the attendance status for many guests at once (the only bulk-editable
     field besides delete). Answers are left untouched; see `_set_rsvp_status`."""
+    wedding, owner = ctx.wedding, ctx.user
     guests = _owned_guests_in(db, wedding, payload.ids)
     for g in guests:
         _set_rsvp_status(db, wedding, g, payload.status, actor=owner.email)
@@ -608,7 +630,7 @@ def bulk_set_rsvp(
 @router.post("/guests/bulk/delete", response_model=BulkResult)
 def bulk_delete_guests(
     payload: BulkGuestIds,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> BulkResult:
     """Remove many guests at once (each cascades to its RSVP, like the single
@@ -636,7 +658,7 @@ def _get_owned_companion(db: Session, wedding: Wedding, companion_id: UUID) -> C
 def update_companion(
     companion_id: UUID,
     payload: CompanionUpdate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> CompanionAdmin:
     """Edit a single companion's name and/or its person-scope answers. `kind` stays
@@ -682,7 +704,7 @@ def update_companion(
 @router.delete("/companions/{companion_id}", status_code=204)
 def delete_companion(
     companion_id: UUID,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> Response:
     companion = _get_owned_companion(db, wedding, companion_id)
@@ -694,7 +716,7 @@ def delete_companion(
 # --- Questions -------------------------------------------------------------
 @router.get("/questions", response_model=list[QuestionAdmin])
 def list_questions(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> list[QuestionAdmin]:
     rows = (
         db.execute(
@@ -711,9 +733,15 @@ def list_questions(
 @router.post("/questions", response_model=QuestionAdmin, status_code=201)
 def create_question(
     payload: QuestionCreate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> QuestionAdmin:
+    check_limit(
+        db, wedding, "max_custom_questions",
+        db.execute(
+            select(func.count()).select_from(Question).where(Question.wedding_id == wedding.id)
+        ).scalar_one(),
+    )
     q = Question(
         wedding_id=wedding.id,
         prompt=payload.prompt,
@@ -747,7 +775,7 @@ def _get_owned_question(db: Session, wedding: Wedding, question_id: UUID) -> Que
 def update_question(
     question_id: UUID,
     payload: QuestionUpdate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> QuestionAdmin:
     q = _get_owned_question(db, wedding, question_id)
@@ -770,7 +798,7 @@ def update_question(
 @router.delete("/questions/{question_id}", status_code=204)
 def delete_question(
     question_id: UUID,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> Response:
     q = _get_owned_question(db, wedding, question_id)
@@ -781,7 +809,7 @@ def delete_question(
 
 # --- Content / event details / theme ---------------------------------------
 @router.get("/content", response_model=ContentAdmin)
-def get_content(wedding: Wedding = Depends(owner_wedding)) -> ContentAdmin:
+def get_content(wedding: Wedding = Depends(member_wedding)) -> ContentAdmin:
     return ContentAdmin(
         couple_names=wedding.couple_names,
         event_details=wedding.event_details or {},
@@ -793,7 +821,7 @@ def get_content(wedding: Wedding = Depends(owner_wedding)) -> ContentAdmin:
 @router.patch("/content", response_model=ContentAdmin)
 def update_content(
     payload: ContentUpdate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> ContentAdmin:
     """Partial edit of the invite's copy/details/theme. JSON sections deep-merge so
@@ -819,7 +847,7 @@ def update_content(
 # --- Story arcs ------------------------------------------------------------
 @router.get("/story-arcs", response_model=list[StoryArcAdmin])
 def list_story_arcs(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> list[StoryArcAdmin]:
     rows = (
         db.execute(
@@ -836,9 +864,15 @@ def list_story_arcs(
 @router.post("/story-arcs", response_model=StoryArcAdmin, status_code=201)
 def create_story_arc(
     payload: StoryArcCreate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> StoryArcAdmin:
+    check_limit(
+        db, wedding, "max_story_arcs",
+        db.execute(
+            select(func.count()).select_from(StoryArc).where(StoryArc.wedding_id == wedding.id)
+        ).scalar_one(),
+    )
     arc = StoryArc(
         wedding_id=wedding.id,
         title=payload.title,
@@ -865,7 +899,7 @@ def _get_owned_arc(db: Session, wedding: Wedding, arc_id: UUID) -> StoryArc:
 def update_story_arc(
     arc_id: UUID,
     payload: StoryArcUpdate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> StoryArcAdmin:
     arc = _get_owned_arc(db, wedding, arc_id)
@@ -881,7 +915,7 @@ def update_story_arc(
 @router.delete("/story-arcs/{arc_id}", status_code=204)
 def delete_story_arc(
     arc_id: UUID,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> Response:
     arc = _get_owned_arc(db, wedding, arc_id)
@@ -894,7 +928,7 @@ def delete_story_arc(
 @router.post("/upload", response_model=UploadResult)
 async def upload_image(
     file: UploadFile = File(...),
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     settings: Settings = Depends(get_settings),
 ) -> UploadResult:
     """Accept a single image (multipart) and return a stored URL to drop into a
@@ -925,7 +959,7 @@ def _attending_rsvps(db: Session, wedding: Wedding) -> list[Rsvp]:
 
 @router.get("/responses", response_model=list[ResponseAdmin])
 def list_responses(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> list[ResponseAdmin]:
     rsvps = (
         db.execute(
@@ -1224,7 +1258,7 @@ def _group_breakdown(
 
 @router.get("/summary", response_model=AdminSummary)
 def summary(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> AdminSummary:
     guests = list(
         db.execute(
@@ -1305,7 +1339,7 @@ def summary_pivot(
     then: str | None = Query("status"),
     side: str | None = Query(None),
     status: str | None = Query(None),
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(member_wedding),
     db: Session = Depends(get_db),
 ) -> PivotSummary:
     """Configurable Overview pivot. `by` chooses the bars, `then` the stacked segments
@@ -1354,7 +1388,7 @@ def summary_pivot(
 
 @router.get("/summary/timeline", response_model=TimelineSummary)
 def summary_timeline(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> TimelineSummary:
     """Cumulative RSVP replies bucketed by week (Monday-anchored), for the Overview's
     Trends chart. Counted by first reply (`responded_at`); `total_invitations` is the
@@ -1392,7 +1426,7 @@ def _wish_admin(w: Wish) -> WishAdmin:
 
 @router.get("/wishes", response_model=list[WishAdmin])
 def list_wishes(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> list[WishAdmin]:
     rows = (
         db.execute(
@@ -1419,7 +1453,7 @@ def _get_owned_wish(db: Session, wedding: Wedding, wish_id: UUID) -> Wish:
 def moderate_wish(
     wish_id: UUID,
     payload: WishModerate,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> WishAdmin:
     wish = _get_owned_wish(db, wedding, wish_id)
@@ -1432,7 +1466,7 @@ def moderate_wish(
 @router.delete("/wishes/{wish_id}", status_code=204)
 def delete_wish(
     wish_id: UUID,
-    wedding: Wedding = Depends(owner_wedding),
+    wedding: Wedding = Depends(editable_wedding),
     db: Session = Depends(get_db),
 ) -> Response:
     wish = _get_owned_wish(db, wedding, wish_id)
@@ -1512,9 +1546,10 @@ def _xlsx(
 
 @router.get("/export.xlsx")
 def export_xlsx(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> Response:
     """Split-row guest + RSVP workbook (one row per person), with dropdowns."""
+    require_feature(db, wedding, "export_enabled")
     questions = _questions_ordered(db, wedding)
     header = export_import.columns([q.prompt for q in questions])
     rows = export_import.build_rows(_guests_with_rsvp(db, wedding), questions)
@@ -1523,9 +1558,10 @@ def export_xlsx(
 
 @router.get("/template.xlsx")
 def template_xlsx(
-    wedding: Wedding = Depends(owner_wedding), db: Session = Depends(get_db)
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> Response:
     """A fillable template: the split-row header + a few example rows, with dropdowns."""
+    require_feature(db, wedding, "import_enabled")
     questions = _questions_ordered(db, wedding)
     header = export_import.columns([q.prompt for q in questions])
     return _xlsx(
@@ -1600,10 +1636,11 @@ def _resolve_import_answers(pg, qmap: dict[str, Question]):
 async def import_guests(
     file: UploadFile = File(...),
     commit: bool = Query(False),
-    owner: Owner = Depends(get_current_owner),
-    wedding: Wedding = Depends(owner_wedding),
+    ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
 ) -> ImportResult:
+    wedding, owner = ctx.wedding, ctx.user
+    require_feature(db, wedding, "import_enabled")
     """Upsert guests from a split-row XLSX (CSV also read). Dry-run by default
     (`commit=0`), returning a per-invitee preview of creates/updates/errors;
     `commit=1` applies.
@@ -1621,6 +1658,12 @@ async def import_guests(
         raise HTTPException(status_code=422, detail=f"Could not read the file: {exc}") from exc
 
     parsed = export_import.parse_records(records)
+    # Entitlement: the whole import is refused up front if the NEW invitees it
+    # would create push past the plan's guest cap (dry-run included, so the
+    # preview surfaces the problem before anyone commits).
+    creates_planned = sum(1 for pg in parsed if not pg.guest_id)
+    if creates_planned:
+        check_limit(db, wedding, "max_guests", _guest_count(db, wedding), adding=creates_planned)
     qmap = {q.prompt: q for q in _questions_ordered(db, wedding)}
     results: list[ImportRowResult] = []
     created = updated = errors = 0
@@ -1793,3 +1836,347 @@ async def import_guests(
         errors=errors,
         rows=results,
     )
+
+
+# =========================================================================
+# Wedding lifecycle (SAAS_PLAN Phase 2) — approval + publication.
+# =========================================================================
+def _lifecycle(wedding: Wedding, *, auto: bool | None = None, trace: list | None = None) -> LifecycleResult:
+    return LifecycleResult(
+        wedding_id=wedding.id,
+        status=wedding.status,
+        published=wedding.published,
+        auto_approved=auto,
+        rule_trace=[RuleTraceEntry(**t) for t in (trace or [])],
+    )
+
+
+@router.post("/submit-approval", response_model=LifecycleResult)
+def submit_for_approval(
+    ctx: WeddingCtx = Depends(owner_ctx),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> LifecycleResult:
+    """Owner submits the wedding for platform approval (`draft →
+    pending_approval`). The auto-approval rules run immediately: all pass (and
+    auto-approve is on) → instant `active`; otherwise it queues for manual
+    review. Idempotent on an already-pending wedding (rules re-evaluate)."""
+    wedding = ctx.wedding
+    if wedding.status not in (WeddingStatus.DRAFT, WeddingStatus.PENDING_APPROVAL):
+        raise HTTPException(
+            status_code=409, detail="Only a draft wedding can be submitted for approval"
+        )
+    auto, trace = evaluate_auto_approval(db, wedding)
+    wedding.status = WeddingStatus.ACTIVE if auto else WeddingStatus.PENDING_APPROVAL
+    record(
+        db, "wedding.submit", user=ctx.user, wedding=wedding,
+        detail={"auto_approved": auto, "trace": trace},
+    )
+    if auto:
+        record(db, "wedding.approve", user=None, wedding=wedding, detail={"auto": True})
+    db.commit()
+    send_email(
+        settings, ctx.user.email,
+        f"{wedding.couple_names}: " + ("approved!" if auto else "submitted for review"),
+        "Your wedding was approved automatically — you can publish it now."
+        if auto
+        else "Your wedding is in the review queue; we'll email you when it's approved.",
+    )
+    return _lifecycle(wedding, auto=auto, trace=trace)
+
+
+@router.post("/publish", response_model=LifecycleResult)
+def set_published(
+    payload: PublishUpdate,
+    ctx: WeddingCtx = Depends(editor_ctx),
+    db: Session = Depends(get_db),
+) -> LifecycleResult:
+    """Toggle publication — the switch that makes guest links live. Independent
+    of approval: only an `active` wedding can be published (unpublishing is
+    always allowed). Owner-only unless the owner granted publish rights to
+    admins (`settings.admins_can_publish`)."""
+    wedding = ctx.wedding
+    if not _can_publish(ctx):
+        raise HTTPException(status_code=403, detail="Only the owner can publish this wedding")
+    if payload.published and wedding.status != WeddingStatus.ACTIVE:
+        raise HTTPException(
+            status_code=409, detail="This wedding must be approved before it can be published"
+        )
+    wedding.published = payload.published
+    record(
+        db, "wedding.publish" if payload.published else "wedding.unpublish",
+        user=ctx.user, wedding=wedding,
+    )
+    db.commit()
+    return _lifecycle(wedding)
+
+
+@router.patch("/settings", response_model=dict)
+def update_wedding_settings(
+    payload: WeddingSettingsUpdate,
+    ctx: WeddingCtx = Depends(owner_ctx),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Owner-only per-wedding admin settings (currently: whether co-admins may
+    publish). Merged, not replaced; returns the effective settings blob."""
+    wedding = ctx.wedding
+    merged = dict(wedding.settings or {})
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        if value is not None:
+            merged[key] = value
+    wedding.settings = merged
+    record(db, "wedding.settings", user=ctx.user, wedding=wedding, detail=merged)
+    db.commit()
+    return merged
+
+
+@router.delete("", response_model=LifecycleResult)
+def archive_wedding(
+    ctx: WeddingCtx = Depends(owner_ctx),
+    db: Session = Depends(get_db),
+) -> LifecycleResult:
+    """Owner deletes the wedding — a SOFT delete: status → `archived`,
+    unpublished, dashboard access ends. The 30-day undo window (reinstate, then
+    hard purge) lives with the platform admin."""
+    wedding = ctx.wedding
+    wedding.status = WeddingStatus.ARCHIVED
+    wedding.published = False
+    record(db, "wedding.archive", user=ctx.user, wedding=wedding)
+    db.commit()
+    return _lifecycle(wedding)
+
+
+# =========================================================================
+# Members — co-admin management (SAAS_PLAN Phase 3). Viewing is open to any
+# member; every mutation is owner-only.
+# =========================================================================
+_INVITE_TTL = timedelta(days=7)
+
+
+def _member_admin(db: Session, m: WeddingMember) -> MemberAdmin:
+    email = m.invited_email
+    display = ""
+    if m.user_id:
+        profile = db.get(Profile, m.user_id)
+        if profile is not None:
+            email = profile.email
+            display = profile.display_name
+    return MemberAdmin(
+        id=m.id,
+        user_id=m.user_id,
+        email=email,
+        display_name=display,
+        role=m.role.value,
+        status=m.status.value,
+        invited_by=m.invited_by,
+        created_at=m.created_at,
+        invite_expires_at=m.invite_expires_at if m.status is MemberStatus.invited else None,
+    )
+
+
+def _active_owner_count(db: Session, wedding: Wedding) -> int:
+    return db.execute(
+        select(func.count()).select_from(WeddingMember).where(
+            WeddingMember.wedding_id == wedding.id,
+            WeddingMember.role == MemberRole.owner,
+            WeddingMember.status == MemberStatus.active,
+        )
+    ).scalar_one()
+
+
+def _get_owned_member(db: Session, wedding: Wedding, member_id: UUID) -> WeddingMember:
+    m = db.execute(
+        select(WeddingMember).where(
+            WeddingMember.id == member_id, WeddingMember.wedding_id == wedding.id
+        )
+    ).scalar_one_or_none()
+    if m is None:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return m
+
+
+@router.get("/members", response_model=list[MemberAdmin])
+def list_members(
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
+) -> list[MemberAdmin]:
+    rows = db.execute(
+        select(WeddingMember)
+        .where(WeddingMember.wedding_id == wedding.id)
+        .order_by(WeddingMember.created_at)
+    ).scalars().all()
+    return [_member_admin(db, m) for m in rows]
+
+
+@router.post("/members", response_model=MemberInvited, status_code=201)
+def invite_member(
+    payload: MemberInviteCreate,
+    ctx: WeddingCtx = Depends(owner_ctx),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MemberInvited:
+    """Invite a co-admin by email: an `invited` membership row + a single-use,
+    expiring token (emailed; also returned as a copyable accept path). Accepting
+    requires signing in with the SAME email. Re-inviting a revoked/expired email
+    reuses its row with a fresh token."""
+    wedding, user = ctx.wedding, ctx.user
+    try:
+        email = normalize_email(payload.email)
+    except ContactError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if email is None:
+        raise HTTPException(status_code=422, detail="An email address is required")
+    email = email.lower()
+
+    existing = db.execute(
+        select(WeddingMember).where(
+            WeddingMember.wedding_id == wedding.id, WeddingMember.invited_email == email
+        )
+    ).scalar_one_or_none()
+    if existing is not None and existing.status is MemberStatus.active:
+        raise HTTPException(status_code=409, detail="Already a member of this wedding")
+
+    active_or_invited = db.execute(
+        select(func.count()).select_from(WeddingMember).where(
+            WeddingMember.wedding_id == wedding.id,
+            WeddingMember.status != MemberStatus.revoked,
+        )
+    ).scalar_one()
+    if existing is None or existing.status is MemberStatus.revoked:
+        check_limit(db, wedding, "max_members", active_or_invited)
+
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expires = datetime.now(timezone.utc) + _INVITE_TTL
+
+    if existing is None:
+        member = WeddingMember(
+            wedding_id=wedding.id,
+            invited_email=email,
+            role=MemberRole(payload.role),
+            status=MemberStatus.invited,
+            invited_by=user.sub,
+            invite_token_hash=token_hash,
+            invite_expires_at=expires,
+        )
+        db.add(member)
+    else:  # revoked or still-invited: refresh the invite
+        member = existing
+        member.role = MemberRole(payload.role)
+        member.status = MemberStatus.invited
+        member.user_id = None
+        member.invited_by = user.sub
+        member.invite_token_hash = token_hash
+        member.invite_expires_at = expires
+    db.flush()
+    record(
+        db, "member.invite", user=user, wedding=wedding,
+        target_type="member", target_id=member.id, detail={"email": email, "role": payload.role},
+    )
+    db.commit()
+
+    accept_path = f"/invites/accept?token={token}"
+    send_email(
+        settings, email,
+        f"You're invited to help manage {wedding.couple_names}",
+        f"Sign in with this email address, then open {accept_path} to accept. "
+        f"The link expires in 7 days.",
+    )
+    return MemberInvited(member=_member_admin(db, member), accept_path=accept_path)
+
+
+@router.patch("/members/{member_id}", response_model=MemberAdmin)
+def update_member_role(
+    member_id: UUID,
+    payload: MemberRoleUpdate,
+    ctx: WeddingCtx = Depends(owner_ctx),
+    db: Session = Depends(get_db),
+) -> MemberAdmin:
+    wedding = ctx.wedding
+    member = _get_owned_member(db, wedding, member_id)
+    new_role = MemberRole(payload.role)
+    if (
+        member.role is MemberRole.owner
+        and new_role is not MemberRole.owner
+        and member.status is MemberStatus.active
+        and _active_owner_count(db, wedding) <= 1
+    ):
+        raise HTTPException(status_code=409, detail="A wedding must keep at least one owner")
+    member.role = new_role
+    record(
+        db, "member.role", user=ctx.user, wedding=wedding,
+        target_type="member", target_id=member.id, detail={"role": payload.role},
+    )
+    db.commit()
+    return _member_admin(db, member)
+
+
+@router.delete("/members/{member_id}", response_model=MemberAdmin)
+def revoke_member(
+    member_id: UUID,
+    ctx: WeddingCtx = Depends(owner_ctx),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MemberAdmin:
+    """Revoke a member (or cancel a pending invite). Access dies immediately —
+    membership is checked per-request, nothing is cached."""
+    wedding = ctx.wedding
+    member = _get_owned_member(db, wedding, member_id)
+    if (
+        member.role is MemberRole.owner
+        and member.status is MemberStatus.active
+        and _active_owner_count(db, wedding) <= 1
+    ):
+        raise HTTPException(status_code=409, detail="A wedding must keep at least one owner")
+    member.status = MemberStatus.revoked
+    member.invite_token_hash = None
+    member.invite_expires_at = None
+    record(
+        db, "member.revoke", user=ctx.user, wedding=wedding,
+        target_type="member", target_id=member.id,
+    )
+    db.commit()
+    if member.invited_email:
+        send_email(
+            settings, member.invited_email,
+            f"Your access to {wedding.couple_names} was removed",
+            "An owner removed your dashboard access for this wedding.",
+        )
+    return _member_admin(db, member)
+
+
+@router.post("/members/{member_id}/transfer-ownership", response_model=MemberAdmin)
+def transfer_ownership(
+    member_id: UUID,
+    ctx: WeddingCtx = Depends(owner_ctx),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> MemberAdmin:
+    """Make `member_id` the owner; the current owner steps down to admin. The
+    target must be an ACTIVE member (accept the invite first). The frontend
+    double-confirms; the API is a single atomic step."""
+    wedding, user = ctx.wedding, ctx.user
+    target = _get_owned_member(db, wedding, member_id)
+    if target.status is not MemberStatus.active:
+        raise HTTPException(status_code=409, detail="That member hasn't accepted their invite yet")
+    if target.user_id == user.sub:
+        raise HTTPException(status_code=409, detail="You already own this wedding")
+    target.role = MemberRole.owner
+    actor_row = db.execute(
+        select(WeddingMember).where(
+            WeddingMember.wedding_id == wedding.id, WeddingMember.user_id == user.sub
+        )
+    ).scalar_one_or_none()
+    if actor_row is not None:  # platform admins acting without membership skip this
+        actor_row.role = MemberRole.admin
+    record(
+        db, "member.transfer_ownership", user=user, wedding=wedding,
+        target_type="member", target_id=target.id,
+    )
+    db.commit()
+    if target.invited_email:
+        send_email(
+            settings, target.invited_email,
+            f"You now own {wedding.couple_names}",
+            "Ownership of this wedding was transferred to you.",
+        )
+    return _member_admin(db, target)

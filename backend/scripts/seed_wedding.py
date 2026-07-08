@@ -36,6 +36,7 @@ def seed() -> Wedding:
         wedding.content = CONTENT
         wedding.theme_tokens = None  # use the default "Ever after" template
         wedding.status = "active"
+        wedding.published = True  # the seeded template wedding is live (demo links work)
         db.commit()
         db.refresh(wedding)
 

@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     func,
     text,
@@ -79,30 +80,65 @@ def _uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
+class WeddingStatus:
+    """Lifecycle states (kept as plain strings — adding one needs no migration).
+
+    draft → pending_approval → active; platform admin may suspend/reinstate;
+    owner delete soft-archives. Approval (`status`) and publication (`published`)
+    are independent switches: guests see a wedding only when it is BOTH active
+    and published.
+    """
+
+    DRAFT = "draft"
+    PENDING_APPROVAL = "pending_approval"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    ARCHIVED = "archived"
+    ALL = (DRAFT, PENDING_APPROVAL, ACTIVE, SUSPENDED, ARCHIVED)
+
+
+class MemberRole(str, enum.Enum):
+    owner = "owner"
+    admin = "admin"
+
+
+class MemberStatus(str, enum.Enum):
+    invited = "invited"
+    active = "active"
+    revoked = "revoked"
+
+
 class Wedding(Base):
-    """Tenant root. v1 = one row (Alex & Sam)."""
+    """Tenant root."""
 
     __tablename__ = "weddings"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
-    # Supabase auth user id of the PRIMARY owner / creator. Nullable until an
-    # owner signs in (v1). Future two-tier admin model (see PLAN.md) adds a
-    # `wedding_members` join table for nominated co-admins — additive, this stays
-    # as the creator.
+    # Auth user id of the CREATOR (informational). Authorization goes through
+    # `wedding_members` — this column is never consulted for access decisions.
     owner_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     couple_names: Mapped[str] = mapped_column(String(200))
     # Structured but flexible content so it's editable per-wedding (future editor).
     event_details: Mapped[dict] = mapped_column(JSON, default=dict)  # venue/date/time/map
     content: Mapped[dict] = mapped_column(JSON, default=dict)  # story/dress/faq sections
     theme_tokens: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # override of default template
-    status: Mapped[str] = mapped_column(String(20), default="draft")
+    status: Mapped[str] = mapped_column(String(20), default=WeddingStatus.DRAFT)
+    # Publication is independent of approval: an `active` unpublished wedding is
+    # editable but publicly invisible (guest links 404).
+    published: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # Per-wedding admin settings (owner-editable knobs that aren't guest content),
+    # e.g. {"admins_can_publish": true}. NULL = all defaults.
+    settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     guests: Mapped[list[Guest]] = relationship(back_populates="wedding", cascade="all, delete-orphan")
     questions: Mapped[list[Question]] = relationship(back_populates="wedding", cascade="all, delete-orphan")
     wishes: Mapped[list[Wish]] = relationship(back_populates="wedding", cascade="all, delete-orphan")
     story_arcs: Mapped[list[StoryArc]] = relationship(
+        back_populates="wedding", cascade="all, delete-orphan"
+    )
+    members: Mapped[list[WeddingMember]] = relationship(
         back_populates="wedding", cascade="all, delete-orphan"
     )
 
@@ -338,6 +374,157 @@ class Wish(Base):
     guest: Mapped[Guest | None] = relationship()
 
 
+# =========================================================================
+# Identity & tenancy (SAAS_PLAN Phase 1) — accounts, memberships, audit.
+# =========================================================================
+class Profile(Base):
+    """One row per platform account. `user_id` is the Supabase auth user id (or a
+    `dev`/`dev:<email>` id for the local dev-token principals). Upserted lazily by
+    the backend on a user's first authenticated request — no DB trigger needed, so
+    it works identically on local SQLite and Supabase."""
+
+    __tablename__ = "profiles"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), index=True)
+    display_name: Mapped[str] = mapped_column(String(120), default="")
+    # Platform-admin kill switch (Phase 4 "disable account"). A disabled account
+    # authenticates but every membership/platform check refuses it.
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WeddingMember(Base):
+    """Membership row — THE authorization record for a wedding's dashboard.
+
+    A user belongs to any number of weddings with a per-wedding role. `invited`
+    rows (Phase 3 co-admin invites) carry `invited_email` + a hashed single-use
+    token until accepted; `user_id` is filled on acceptance. Revoked rows are kept
+    (audit trail) and never grant access.
+    """
+
+    __tablename__ = "wedding_members"
+    __table_args__ = (
+        UniqueConstraint("wedding_id", "user_id", name="uq_member_wedding_user"),
+        UniqueConstraint("wedding_id", "invited_email", name="uq_member_wedding_email"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    wedding_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("weddings.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    invited_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    role: Mapped[MemberRole] = mapped_column(Enum(MemberRole, name="member_role"))
+    status: Mapped[MemberStatus] = mapped_column(
+        Enum(MemberStatus, name="member_status"), default=MemberStatus.active
+    )
+    invited_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Phase 3 invite token: sha256 hex of the emailed single-use token + expiry.
+    # NULL once accepted (the token is never stored in the clear).
+    invite_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    invite_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    wedding: Mapped[Wedding] = relationship(back_populates="members")
+
+
+class PlatformAdmin(Base):
+    """Grants platform-wide (super admin) powers. The `ADMIN_EMAILS` env var stays
+    only as the bootstrap fallback for the very first admin."""
+
+    __tablename__ = "platform_admins"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    granted_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditLog(Base):
+    """Append-only trail of admin/platform mutations. `wedding_id` NULL = a
+    platform-level action. Written by app/audit_log.py; never updated or deleted
+    by application code."""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    wedding_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("weddings.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    actor_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    target_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PlatformSetting(Base):
+    """Key-value platform configuration (auto-approval rules, banned words, …),
+    editable from the platform console. Values are JSON blobs so adding a knob
+    needs no migration."""
+
+    __tablename__ = "platform_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+# =========================================================================
+# Plans & entitlements (SAAS_PLAN Phase 5) — capability tiers, no payments.
+# =========================================================================
+class Plan(Base):
+    """A capability tier. `entitlements` is JSONB (key → value) so new keys need
+    no migration; `is_default` marks the plan auto-assigned at wedding creation."""
+
+    __tablename__ = "plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    entitlements: Mapped[dict] = mapped_column(JSON, default=dict)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WeddingPlan(Base):
+    """Plan assignment for one wedding (unique). `overrides` are per-wedding
+    exceptions the platform admin grants; effective entitlements =
+    defaults ∪ plan.entitlements ∪ overrides. `valid_until` covers trials/grace
+    periods (NULL = no expiry); billing (Phase 6) later maps subscription state
+    onto these rows without schema change."""
+
+    __tablename__ = "wedding_plans"
+
+    wedding_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("weddings.id", ondelete="CASCADE"), primary_key=True
+    )
+    plan_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("plans.id"), index=True)
+    overrides: Mapped[dict] = mapped_column(JSON, default=dict)
+    assigned_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    plan: Mapped[Plan] = relationship()
+
+
 # All tenant tables (used by migrations to enable RLS uniformly).
 TENANT_TABLES = ["guests", "rsvps", "companions", "questions", "answers", "wishes", "story_arcs"]
-ALL_TABLES = ["weddings", *TENANT_TABLES]
+# Platform-era tables (Phase 1+). RLS-enabled the same way — the backend is the
+# sole DB actor; the Supabase anon surface is denied everything.
+PLATFORM_TABLES = [
+    "profiles", "wedding_members", "platform_admins", "audit_log",
+    "platform_settings", "plans", "wedding_plans",
+]
+ALL_TABLES = ["weddings", *TENANT_TABLES, *PLATFORM_TABLES]

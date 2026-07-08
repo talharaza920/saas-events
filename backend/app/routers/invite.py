@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from app.answers import is_party_question, person_question_applies
 from app.audit import SOURCE_GUEST, stamp_rsvp
 from app.db import get_db
-from app.models import Answer, Companion, CompanionKind, Rsvp, Wish
+from app.entitlements import feature_enabled
+from app.models import Answer, Companion, CompanionKind, Rsvp, Wedding, Wish
 from app.schemas import (
     AnswerPublic,
     CompanionPublic,
@@ -51,6 +52,15 @@ router = APIRouter(prefix="/api/i", tags=["invite"])
 public_router = APIRouter(prefix="/api", tags=["public"])
 
 
+def _landing_response(wedding) -> LandingResponse:
+    landing = (wedding.content or {}).get("landing") or {}
+    return LandingResponse(
+        couple_names=wedding.couple_names,
+        landing=landing,
+        theme_tokens=wedding.theme_tokens,
+    )
+
+
 @public_router.get("/landing", response_model=LandingResponse)
 def get_landing(db: Session = Depends(get_db)) -> LandingResponse:
     """Copy for the public "no link" landing page (someone visiting the root with
@@ -58,12 +68,20 @@ def get_landing(db: Session = Depends(get_db)) -> LandingResponse:
     wedding = primary_wedding(db)
     if wedding is None:
         raise HTTPException(status_code=404, detail="No wedding configured")
-    landing = (wedding.content or {}).get("landing") or {}
-    return LandingResponse(
-        couple_names=wedding.couple_names,
-        landing=landing,
-        theme_tokens=wedding.theme_tokens,
-    )
+    return _landing_response(wedding)
+
+
+@public_router.get("/w/{wedding_slug}/landing", response_model=LandingResponse)
+def get_wedding_landing(wedding_slug: str, db: Session = Depends(get_db)) -> LandingResponse:
+    """The public `/{weddingSlug}` page's copy. Only for weddings that are BOTH
+    active and published — everything else is the same neutral 404 (suspension/
+    unpublish must be indistinguishable from "never existed")."""
+    wedding = db.execute(
+        select(Wedding).where(Wedding.slug == wedding_slug)
+    ).scalar_one_or_none()
+    if wedding is None or wedding.status != "active" or not wedding.published:
+        raise HTTPException(status_code=404, detail="Not found")
+    return _landing_response(wedding)
 
 
 def _first_name(name: str) -> str:
@@ -322,6 +340,9 @@ def list_wishes(guest_slug: str, db: Session = Depends(get_db)) -> list[WishPubl
     if resolved is None:
         raise HTTPException(status_code=404, detail="Invitation not found")
     wedding, _ = resolved
+    if not feature_enabled(db, wedding, "wishes_enabled"):
+        # Same neutral 404 — a plan limit must not look different from "no wall".
+        raise HTTPException(status_code=404, detail="Invitation not found")
     rows = (
         db.execute(
             select(Wish)
@@ -345,6 +366,8 @@ def create_wish(
     if resolved is None:
         raise HTTPException(status_code=404, detail="Invitation not found")
     wedding, guest = resolved
+    if not feature_enabled(db, wedding, "wishes_enabled"):
+        raise HTTPException(status_code=404, detail="Invitation not found")
     wish = Wish(
         wedding_id=wedding.id,
         guest_id=guest.id,

@@ -280,6 +280,18 @@ class AdminMe(BaseModel):
     wedding_id: UUID
     wedding_slug: str
     couple_names: str
+    # The caller's effective role on THIS wedding: admin | owner | platform.
+    role: str
+    # Lifecycle: draft | pending_approval | active | suspended | archived, plus
+    # the independent publication switch. Drives the dashboard's status banner.
+    wedding_status: str
+    published: bool
+    # Whether this caller may toggle publication (owner, or admin when the
+    # owner granted it via settings.admins_can_publish).
+    can_publish: bool
+    # Effective entitlements for the wedding (plan ∪ overrides; Phase 5). The UI
+    # uses this to gray out features — the server re-checks on every write.
+    entitlements: dict[str, Any] = {}
 
 
 # --- RSVP rollup pieces (defined before GuestAdmin, which embeds them) ------
@@ -727,3 +739,246 @@ class ImportResult(BaseModel):
     people_updated: int = 0
     errors: int
     rows: list[ImportRowResult] = []
+
+
+# =========================================================================
+# Platform era (SAAS_PLAN Phases 1–5): accounts, weddings lifecycle, members,
+# platform console, plans & entitlements.
+# =========================================================================
+_MEMBER_ROLE_PATTERN = "^(owner|admin)$"
+
+
+# --- /api/me — the signed-in user's home ------------------------------------
+class MeResponse(BaseModel):
+    user_id: str
+    email: str
+    via: str
+    display_name: str = ""
+    is_platform_admin: bool = False
+
+
+class MyWedding(BaseModel):
+    """One row of the post-login dashboard: a wedding + the caller's role."""
+
+    wedding_id: UUID
+    slug: str
+    couple_names: str
+    role: str  # owner | admin
+    status: str  # draft | pending_approval | active | suspended | archived
+    published: bool
+    guest_count: int = 0
+    created_at: datetime | None = None
+
+
+# --- Wedding creation (Phase 2 wizard) ---------------------------------------
+class WeddingCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    couple_names: str = Field(min_length=3, max_length=200)
+    slug: str = Field(min_length=3, max_length=63)
+    # Optional at creation; everything is editable later in the dashboard.
+    venue: str | None = Field(default=None, max_length=200)
+    date_iso: str | None = Field(default=None, max_length=10)  # YYYY-MM-DD
+    date_display: str | None = Field(default=None, max_length=80)
+
+
+class WeddingCreated(BaseModel):
+    wedding_id: UUID
+    slug: str
+    couple_names: str
+    status: str
+    admin_path: str  # "/{slug}/admin"
+
+
+class SlugCheck(BaseModel):
+    slug: str
+    available: bool
+    reason: str | None = None  # why not, when unavailable
+    suggestion: str | None = None
+
+
+# --- Wedding lifecycle (approval + publication) ------------------------------
+class LifecycleResult(BaseModel):
+    wedding_id: UUID
+    status: str
+    published: bool
+    # When a submission was auto-evaluated: which rules ran and what they said.
+    auto_approved: bool | None = None
+    rule_trace: list[RuleTraceEntry] = []
+
+
+class RuleTraceEntry(BaseModel):
+    rule: str
+    ok: bool
+    detail: str | None = None
+
+
+class PublishUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    published: bool
+
+
+class WeddingSettingsUpdate(BaseModel):
+    """Owner-editable per-wedding admin settings (not guest content)."""
+
+    model_config = ConfigDict(extra="forbid")
+    admins_can_publish: bool | None = None
+
+
+# --- Members (Phase 3 team management) ---------------------------------------
+class MemberAdmin(BaseModel):
+    id: UUID
+    user_id: str | None = None
+    email: str | None = None  # invited_email, or the member profile's email
+    display_name: str = ""
+    role: str  # owner | admin
+    status: str  # invited | active | revoked
+    invited_by: str | None = None
+    created_at: datetime | None = None
+    # For pending invites only: when the emailed token stops working.
+    invite_expires_at: datetime | None = None
+
+
+class MemberInviteCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=254)
+    role: str = Field(default="admin", pattern=_MEMBER_ROLE_PATTERN)
+
+
+class MemberInvited(BaseModel):
+    member: MemberAdmin
+    # Single-use accept path (also emailed). Returned so the owner can copy the
+    # link into any channel; it is useless to anyone but the invited email.
+    accept_path: str
+
+
+class MemberRoleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str = Field(pattern=_MEMBER_ROLE_PATTERN)
+
+
+class InviteAccept(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=16, max_length=128)
+
+
+class InviteAccepted(BaseModel):
+    wedding_id: UUID
+    wedding_slug: str
+    couple_names: str
+    role: str
+
+
+# --- Platform console (Phase 4) ----------------------------------------------
+class PlatformWedding(BaseModel):
+    id: UUID
+    slug: str
+    couple_names: str
+    status: str
+    published: bool
+    owner_email: str | None = None
+    member_count: int = 0
+    guest_count: int = 0
+    plan_name: str | None = None
+    created_at: datetime | None = None
+
+
+class ApprovalItem(BaseModel):
+    """One pending wedding in the approval queue, with the auto-rule trace."""
+
+    wedding: PlatformWedding
+    rule_trace: list[RuleTraceEntry] = []
+    would_auto_approve: bool = False
+
+
+class ApprovalDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class PlatformSettingsPayload(BaseModel):
+    """The platform_settings 'approval' blob (rules editor). Whole-blob PUT."""
+
+    model_config = ConfigDict(extra="forbid")
+    auto_approve: bool = False
+    require_verified_email: bool = True
+    min_account_age_hours: int = Field(default=0, ge=0)
+    max_weddings_per_account: int = Field(default=3, ge=1)
+    max_guests_at_submission: int = Field(default=500, ge=0)
+    banned_words: list[str] = []
+
+
+class PlatformUser(BaseModel):
+    user_id: str
+    email: str
+    display_name: str = ""
+    disabled: bool = False
+    is_platform_admin: bool = False
+    wedding_count: int = 0
+    created_at: datetime | None = None
+
+
+class UserDisableUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    disabled: bool
+
+
+class PlatformStats(BaseModel):
+    weddings_by_status: dict[str, int] = {}
+    total_users: int = 0
+    total_guests: int = 0
+    rsvps_last_7_days: int = 0
+    signups_last_7_days: int = 0
+
+
+class AuditEntry(BaseModel):
+    id: UUID
+    wedding_id: UUID | None = None
+    actor_email: str | None = None
+    action: str
+    target_type: str | None = None
+    target_id: str | None = None
+    detail: dict[str, Any] = {}
+    created_at: datetime | None = None
+
+
+# --- Plans & entitlements (Phase 5) -------------------------------------------
+class PlanAdmin(BaseModel):
+    id: UUID
+    name: str
+    description: str = ""
+    is_default: bool = False
+    entitlements: dict[str, Any] = {}
+    archived: bool = False
+    created_at: datetime | None = None
+
+
+class PlanCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=2000)
+    is_default: bool = False
+    entitlements: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlanUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=2000)
+    is_default: bool | None = None
+    entitlements: dict[str, Any] | None = None
+    archived: bool | None = None
+
+
+class PlanAssign(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plan_id: UUID | None = None  # None = back to the default plan
+    overrides: dict[str, Any] | None = None  # None = keep current overrides
+    valid_until: datetime | None = None
+
+
+class WeddingPlanAdmin(BaseModel):
+    wedding_id: UUID
+    plan: PlanAdmin | None = None
+    overrides: dict[str, Any] = {}
+    effective: dict[str, Any] = {}
+    valid_until: datetime | None = None

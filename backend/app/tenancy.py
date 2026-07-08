@@ -117,7 +117,9 @@ def primary_wedding(db: Session) -> Wedding | None:
     """
     return (
         db.execute(
-            select(Wedding).where(Wedding.status == "active").order_by(Wedding.created_at)
+            select(Wedding)
+            .where(Wedding.status == "active", Wedding.published.is_(True))
+            .order_by(Wedding.created_at)
         )
         .scalars()
         .first()
@@ -134,7 +136,10 @@ def resolve_guest(db: Session, guest_slug: str) -> tuple[Wedding, Guest] | None:
     if guest is None or not guest.invited:
         return None
     wedding = db.get(Wedding, guest.wedding_id)
-    if wedding is None or wedding.status != "active":
+    # Guests see the invite only when the wedding is BOTH approved (`active`) and
+    # published — suspended/unpublished/archived all yield the same neutral 404,
+    # so a guest can never tell why a link went dark.
+    if wedding is None or wedding.status != "active" or not wedding.published:
         return None
     return wedding, guest
 

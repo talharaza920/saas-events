@@ -107,15 +107,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/me": {
+    "/api/w/{wedding_slug}/landing": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Me */
-        get: operations["me_api_admin_me_get"];
+        /**
+         * Get Wedding Landing
+         * @description The public `/{weddingSlug}` page's copy. Only for weddings that are BOTH
+         *     active and published — everything else is the same neutral 404 (suspension/
+         *     unpublish must be indistinguishable from "never existed").
+         */
+        get: operations["get_wedding_landing_api_w__wedding_slug__landing_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -124,7 +129,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/guests": {
+    "/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_api_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/weddings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Weddings
+         * @description Weddings this user belongs to (active memberships), for the post-login
+         *     dashboard. Archived weddings stay listed (status chip shows it) so the owner
+         *     understands where their wedding went during the undo window.
+         */
+        get: operations["my_weddings_api_me_weddings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/weddings/slug-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Slug Check
+         * @description Live slug validation for the creation wizard (format + reserved list +
+         *     uniqueness). Authenticated so it can't be used to enumerate anonymously.
+         */
+        get: operations["slug_check_api_weddings_slug_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/weddings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Wedding Endpoint
+         * @description Self-serve wedding creation (SAAS_PLAN 2.1): neutral template content +
+         *     default questions/arc, creator gets the `owner` membership, status `draft`.
+         *     Account-level cap (`max_weddings_per_account`) is enforced here.
+         */
+        post: operations["create_wedding_endpoint_api_weddings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invites/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Invite
+         * @description Accept a co-admin invite (Phase 3). The token is single-use and expiring;
+         *     the signed-in email must MATCH the invited email — a forwarded link is
+         *     useless to anyone else.
+         */
+        post: operations["accept_invite_api_invites_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_api_w__wedding_slug__admin_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/guests": {
         parameters: {
             query?: never;
             header?: never;
@@ -132,17 +258,17 @@ export interface paths {
             cookie?: never;
         };
         /** List Guests */
-        get: operations["list_guests_api_admin_guests_get"];
+        get: operations["list_guests_api_w__wedding_slug__admin_guests_get"];
         put?: never;
         /** Create Guest */
-        post: operations["create_guest_api_admin_guests_post"];
+        post: operations["create_guest_api_w__wedding_slug__admin_guests_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/guests/{guest_id}": {
+    "/api/w/{wedding_slug}/admin/guests/{guest_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -153,14 +279,14 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete Guest */
-        delete: operations["delete_guest_api_admin_guests__guest_id__delete"];
+        delete: operations["delete_guest_api_w__wedding_slug__admin_guests__guest_id__delete"];
         options?: never;
         head?: never;
         /** Update Guest */
-        patch: operations["update_guest_api_admin_guests__guest_id__patch"];
+        patch: operations["update_guest_api_w__wedding_slug__admin_guests__guest_id__patch"];
         trace?: never;
     };
-    "/api/admin/guests/{guest_id}/rsvp": {
+    "/api/w/{wedding_slug}/admin/guests/{guest_id}/rsvp": {
         parameters: {
             query?: never;
             header?: never;
@@ -168,16 +294,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /**
-         * Set Guest Rsvp
-         * @description Owner override of a guest's RSVP (status + the whole party). Lets the couple
-         *     record a response on a guest's behalf or correct one. `pending` removes the RSVP;
-         *     `declined` keeps it but clears the party; `attending` sets the primary's own +
-         *     invitee-scope `answers` and — when `companions` is given — the entire +1/child
-         *     party with each person's own answers (wholesale replace, like the guest's own
-         *     submit). Omitting `companions` leaves the companion party untouched.
-         */
-        put: operations["set_guest_rsvp_api_admin_guests__guest_id__rsvp_put"];
+        /** Set Guest Rsvp */
+        put: operations["set_guest_rsvp_api_w__wedding_slug__admin_guests__guest_id__rsvp_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -185,7 +303,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/guests/bulk/rsvp": {
+    "/api/w/{wedding_slug}/admin/guests/bulk/rsvp": {
         parameters: {
             query?: never;
             header?: never;
@@ -199,14 +317,14 @@ export interface paths {
          * @description Set the attendance status for many guests at once (the only bulk-editable
          *     field besides delete). Answers are left untouched; see `_set_rsvp_status`.
          */
-        post: operations["bulk_set_rsvp_api_admin_guests_bulk_rsvp_post"];
+        post: operations["bulk_set_rsvp_api_w__wedding_slug__admin_guests_bulk_rsvp_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/guests/bulk/delete": {
+    "/api/w/{wedding_slug}/admin/guests/bulk/delete": {
         parameters: {
             query?: never;
             header?: never;
@@ -220,14 +338,14 @@ export interface paths {
          * @description Remove many guests at once (each cascades to its RSVP, like the single
          *     delete).
          */
-        post: operations["bulk_delete_guests_api_admin_guests_bulk_delete_post"];
+        post: operations["bulk_delete_guests_api_w__wedding_slug__admin_guests_bulk_delete_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/companions/{companion_id}": {
+    "/api/w/{wedding_slug}/admin/companions/{companion_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -238,7 +356,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete Companion */
-        delete: operations["delete_companion_api_admin_companions__companion_id__delete"];
+        delete: operations["delete_companion_api_w__wedding_slug__admin_companions__companion_id__delete"];
         options?: never;
         head?: never;
         /**
@@ -248,10 +366,10 @@ export interface paths {
          *     given it replaces this companion's answers wholesale, validated against the
          *     wedding's questions that apply to this person's kind.
          */
-        patch: operations["update_companion_api_admin_companions__companion_id__patch"];
+        patch: operations["update_companion_api_w__wedding_slug__admin_companions__companion_id__patch"];
         trace?: never;
     };
-    "/api/admin/questions": {
+    "/api/w/{wedding_slug}/admin/questions": {
         parameters: {
             query?: never;
             header?: never;
@@ -259,17 +377,17 @@ export interface paths {
             cookie?: never;
         };
         /** List Questions */
-        get: operations["list_questions_api_admin_questions_get"];
+        get: operations["list_questions_api_w__wedding_slug__admin_questions_get"];
         put?: never;
         /** Create Question */
-        post: operations["create_question_api_admin_questions_post"];
+        post: operations["create_question_api_w__wedding_slug__admin_questions_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/questions/{question_id}": {
+    "/api/w/{wedding_slug}/admin/questions/{question_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -280,14 +398,14 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete Question */
-        delete: operations["delete_question_api_admin_questions__question_id__delete"];
+        delete: operations["delete_question_api_w__wedding_slug__admin_questions__question_id__delete"];
         options?: never;
         head?: never;
         /** Update Question */
-        patch: operations["update_question_api_admin_questions__question_id__patch"];
+        patch: operations["update_question_api_w__wedding_slug__admin_questions__question_id__patch"];
         trace?: never;
     };
-    "/api/admin/content": {
+    "/api/w/{wedding_slug}/admin/content": {
         parameters: {
             query?: never;
             header?: never;
@@ -295,7 +413,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get Content */
-        get: operations["get_content_api_admin_content_get"];
+        get: operations["get_content_api_w__wedding_slug__admin_content_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -307,10 +425,10 @@ export interface paths {
          *     the admin can PATCH a single block (e.g. just `content.cover`); `couple_names`
          *     is replaced. JSON columns are reassigned (not mutated) so SQLAlchemy flushes.
          */
-        patch: operations["update_content_api_admin_content_patch"];
+        patch: operations["update_content_api_w__wedding_slug__admin_content_patch"];
         trace?: never;
     };
-    "/api/admin/story-arcs": {
+    "/api/w/{wedding_slug}/admin/story-arcs": {
         parameters: {
             query?: never;
             header?: never;
@@ -318,17 +436,17 @@ export interface paths {
             cookie?: never;
         };
         /** List Story Arcs */
-        get: operations["list_story_arcs_api_admin_story_arcs_get"];
+        get: operations["list_story_arcs_api_w__wedding_slug__admin_story_arcs_get"];
         put?: never;
         /** Create Story Arc */
-        post: operations["create_story_arc_api_admin_story_arcs_post"];
+        post: operations["create_story_arc_api_w__wedding_slug__admin_story_arcs_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/story-arcs/{arc_id}": {
+    "/api/w/{wedding_slug}/admin/story-arcs/{arc_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -339,14 +457,14 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete Story Arc */
-        delete: operations["delete_story_arc_api_admin_story_arcs__arc_id__delete"];
+        delete: operations["delete_story_arc_api_w__wedding_slug__admin_story_arcs__arc_id__delete"];
         options?: never;
         head?: never;
         /** Update Story Arc */
-        patch: operations["update_story_arc_api_admin_story_arcs__arc_id__patch"];
+        patch: operations["update_story_arc_api_w__wedding_slug__admin_story_arcs__arc_id__patch"];
         trace?: never;
     };
-    "/api/admin/upload": {
+    "/api/w/{wedding_slug}/admin/upload": {
         parameters: {
             query?: never;
             header?: never;
@@ -361,14 +479,14 @@ export interface paths {
          *     story beat's `image`. Namespaced per wedding; dev → local disk, prod →
          *     Supabase Storage (see app/storage.py).
          */
-        post: operations["upload_image_api_admin_upload_post"];
+        post: operations["upload_image_api_w__wedding_slug__admin_upload_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/admin/responses": {
+    "/api/w/{wedding_slug}/admin/responses": {
         parameters: {
             query?: never;
             header?: never;
@@ -376,7 +494,7 @@ export interface paths {
             cookie?: never;
         };
         /** List Responses */
-        get: operations["list_responses_api_admin_responses_get"];
+        get: operations["list_responses_api_w__wedding_slug__admin_responses_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -385,7 +503,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/summary": {
+    "/api/w/{wedding_slug}/admin/summary": {
         parameters: {
             query?: never;
             header?: never;
@@ -393,7 +511,7 @@ export interface paths {
             cookie?: never;
         };
         /** Summary */
-        get: operations["summary_api_admin_summary_get"];
+        get: operations["summary_api_w__wedding_slug__admin_summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -402,7 +520,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/summary/pivot": {
+    "/api/w/{wedding_slug}/admin/summary/pivot": {
         parameters: {
             query?: never;
             header?: never;
@@ -420,7 +538,7 @@ export interface paths {
          *     carries BOTH measures (invitations + people) so the frontend renders any tab off
          *     one response.
          */
-        get: operations["summary_pivot_api_admin_summary_pivot_get"];
+        get: operations["summary_pivot_api_w__wedding_slug__admin_summary_pivot_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -429,7 +547,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/summary/timeline": {
+    "/api/w/{wedding_slug}/admin/summary/timeline": {
         parameters: {
             query?: never;
             header?: never;
@@ -442,7 +560,7 @@ export interface paths {
          *     Trends chart. Counted by first reply (`responded_at`); `total_invitations` is the
          *     ceiling. Lazy-loaded by the UI only when the Trends panel is opened.
          */
-        get: operations["summary_timeline_api_admin_summary_timeline_get"];
+        get: operations["summary_timeline_api_w__wedding_slug__admin_summary_timeline_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -451,7 +569,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/wishes": {
+    "/api/w/{wedding_slug}/admin/wishes": {
         parameters: {
             query?: never;
             header?: never;
@@ -459,7 +577,7 @@ export interface paths {
             cookie?: never;
         };
         /** List Wishes */
-        get: operations["list_wishes_api_admin_wishes_get"];
+        get: operations["list_wishes_api_w__wedding_slug__admin_wishes_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -468,7 +586,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/wishes/{wish_id}": {
+    "/api/w/{wedding_slug}/admin/wishes/{wish_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -479,14 +597,14 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete Wish */
-        delete: operations["delete_wish_api_admin_wishes__wish_id__delete"];
+        delete: operations["delete_wish_api_w__wedding_slug__admin_wishes__wish_id__delete"];
         options?: never;
         head?: never;
         /** Moderate Wish */
-        patch: operations["moderate_wish_api_admin_wishes__wish_id__patch"];
+        patch: operations["moderate_wish_api_w__wedding_slug__admin_wishes__wish_id__patch"];
         trace?: never;
     };
-    "/api/admin/export.xlsx": {
+    "/api/w/{wedding_slug}/admin/export.xlsx": {
         parameters: {
             query?: never;
             header?: never;
@@ -497,7 +615,7 @@ export interface paths {
          * Export Xlsx
          * @description Split-row guest + RSVP workbook (one row per person), with dropdowns.
          */
-        get: operations["export_xlsx_api_admin_export_xlsx_get"];
+        get: operations["export_xlsx_api_w__wedding_slug__admin_export_xlsx_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -506,7 +624,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/template.xlsx": {
+    "/api/w/{wedding_slug}/admin/template.xlsx": {
         parameters: {
             query?: never;
             header?: never;
@@ -517,7 +635,7 @@ export interface paths {
          * Template Xlsx
          * @description A fillable template: the split-row header + a few example rows, with dropdowns.
          */
-        get: operations["template_xlsx_api_admin_template_xlsx_get"];
+        get: operations["template_xlsx_api_w__wedding_slug__admin_template_xlsx_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -526,7 +644,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/import": {
+    "/api/w/{wedding_slug}/admin/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Guests */
+        post: operations["import_guests_api_w__wedding_slug__admin_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/submit-approval": {
         parameters: {
             query?: never;
             header?: never;
@@ -536,19 +671,446 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Import Guests
-         * @description Upsert guests from a split-row XLSX (CSV also read). Dry-run by default
-         *     (`commit=0`), returning a per-invitee preview of creates/updates/errors;
-         *     `commit=1` applies.
-         *
-         *     Upsert key is the `Id` column (the guest UUID), scoped to this wedding — a blank
-         *     Id creates a new guest, an Id that doesn't resolve is an error (the `Link` column
-         *     is display-only and never matched on). The sheet's `Tier` is authoritative when
-         *     set; a party with more companions than the (effective) tier allows is an error,
-         *     never silently widened. Admin-defined question columns ARE written back: when a
-         *     row sets `Attending`, its companions + answers replace the stored RSVP.
+         * Submit For Approval
+         * @description Owner submits the wedding for platform approval (`draft →
+         *     pending_approval`). The auto-approval rules run immediately: all pass (and
+         *     auto-approve is on) → instant `active`; otherwise it queues for manual
+         *     review. Idempotent on an already-pending wedding (rules re-evaluate).
          */
-        post: operations["import_guests_api_admin_import_post"];
+        post: operations["submit_for_approval_api_w__wedding_slug__admin_submit_approval_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Published
+         * @description Toggle publication — the switch that makes guest links live. Independent
+         *     of approval: only an `active` wedding can be published (unpublishing is
+         *     always allowed). Owner-only unless the owner granted publish rights to
+         *     admins (`settings.admins_can_publish`).
+         */
+        post: operations["set_published_api_w__wedding_slug__admin_publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Wedding Settings
+         * @description Owner-only per-wedding admin settings (currently: whether co-admins may
+         *     publish). Merged, not replaced; returns the effective settings blob.
+         */
+        patch: operations["update_wedding_settings_api_w__wedding_slug__admin_settings_patch"];
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Archive Wedding
+         * @description Owner deletes the wedding — a SOFT delete: status → `archived`,
+         *     unpublished, dashboard access ends. The 30-day undo window (reinstate, then
+         *     hard purge) lives with the platform admin.
+         */
+        delete: operations["archive_wedding_api_w__wedding_slug__admin_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Members */
+        get: operations["list_members_api_w__wedding_slug__admin_members_get"];
+        put?: never;
+        /**
+         * Invite Member
+         * @description Invite a co-admin by email: an `invited` membership row + a single-use,
+         *     expiring token (emailed; also returned as a copyable accept path). Accepting
+         *     requires signing in with the SAME email. Re-inviting a revoked/expired email
+         *     reuses its row with a fresh token.
+         */
+        post: operations["invite_member_api_w__wedding_slug__admin_members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/members/{member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Member
+         * @description Revoke a member (or cancel a pending invite). Access dies immediately —
+         *     membership is checked per-request, nothing is cached.
+         */
+        delete: operations["revoke_member_api_w__wedding_slug__admin_members__member_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Member Role */
+        patch: operations["update_member_role_api_w__wedding_slug__admin_members__member_id__patch"];
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/members/{member_id}/transfer-ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transfer Ownership
+         * @description Make `member_id` the owner; the current owner steps down to admin. The
+         *     target must be an ACTIVE member (accept the invite first). The frontend
+         *     double-confirms; the API is a single atomic step.
+         */
+        post: operations["transfer_ownership_api_w__wedding_slug__admin_members__member_id__transfer_ownership_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/weddings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Weddings */
+        get: operations["list_weddings_api_platform_weddings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/weddings/{wedding_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Wedding */
+        post: operations["approve_wedding_api_platform_weddings__wedding_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/weddings/{wedding_id}/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deny Wedding
+         * @description Deny with a reason — back to `draft` so the owner can fix and resubmit.
+         */
+        post: operations["deny_wedding_api_platform_weddings__wedding_id__deny_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/weddings/{wedding_id}/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suspend Wedding
+         * @description Suspend: guest/public pages 404 (guests never see why); wedding admins get
+         *     a read-only dashboard with a suspension banner.
+         */
+        post: operations["suspend_wedding_api_platform_weddings__wedding_id__suspend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/weddings/{wedding_id}/reinstate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reinstate Wedding
+         * @description Reinstate a suspended (→ active) or archived (→ draft, undo window)
+         *     wedding.
+         */
+        post: operations["reinstate_wedding_api_platform_weddings__wedding_id__reinstate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Approval Queue
+         * @description Pending weddings with each auto-rule's verdict, so the reviewer sees WHY
+         *     something queued instead of auto-approving.
+         */
+        get: operations["approval_queue_api_platform_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/settings/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings Approval */
+        get: operations["get_settings_approval_api_platform_settings_approval_get"];
+        /** Put Settings Approval */
+        put: operations["put_settings_approval_api_platform_settings_approval_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_platform_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/users/{user_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set User Disabled
+         * @description Disable/re-enable an account. A disabled account still authenticates with
+         *     Supabase but every API check refuses it (and once real infra exists this is
+         *     where the Supabase ban call goes too).
+         */
+        post: operations["set_user_disabled_api_platform_users__user_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/admins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Platform Admins */
+        get: operations["list_platform_admins_api_platform_admins_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/admins/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Grant Platform Admin */
+        post: operations["grant_platform_admin_api_platform_admins__user_id__post"];
+        /** Revoke Platform Admin */
+        delete: operations["revoke_platform_admin_api_platform_admins__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stats */
+        get: operations["stats_api_platform_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit Tail */
+        get: operations["audit_tail_api_platform_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Plans */
+        get: operations["list_plans_api_platform_plans_get"];
+        put?: never;
+        /** Create Plan */
+        post: operations["create_plan_api_platform_plans_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/plans/{plan_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Plan */
+        patch: operations["update_plan_api_platform_plans__plan_id__patch"];
+        trace?: never;
+    };
+    "/api/platform/weddings/{wedding_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Assign Plan
+         * @description Assign a plan and/or per-wedding overrides. `plan_id: null` clears the
+         *     assignment (back to the default plan); overrides merge-replace wholesale.
+         */
+        put: operations["assign_plan_api_platform_weddings__wedding_id__plan_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -574,6 +1136,19 @@ export interface components {
             wedding_slug: string;
             /** Couple Names */
             couple_names: string;
+            /** Role */
+            role: string;
+            /** Wedding Status */
+            wedding_status: string;
+            /** Published */
+            published: boolean;
+            /** Can Publish */
+            can_publish: boolean;
+            /**
+             * Entitlements
+             * @default {}
+             */
+            entitlements: Record<string, never>;
         };
         /** AdminSummary */
         AdminSummary: {
@@ -681,16 +1256,63 @@ export interface components {
             /** Value */
             value: Record<string, never>;
         };
-        /** Body_import_guests_api_admin_import_post */
-        Body_import_guests_api_admin_import_post: {
+        /** ApprovalDecision */
+        ApprovalDecision: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * ApprovalItem
+         * @description One pending wedding in the approval queue, with the auto-rule trace.
+         */
+        ApprovalItem: {
+            wedding: components["schemas"]["PlatformWedding"];
+            /**
+             * Rule Trace
+             * @default []
+             */
+            rule_trace: components["schemas"]["RuleTraceEntry"][];
+            /**
+             * Would Auto Approve
+             * @default false
+             */
+            would_auto_approve: boolean;
+        };
+        /** AuditEntry */
+        AuditEntry: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Wedding Id */
+            wedding_id?: string | null;
+            /** Actor Email */
+            actor_email?: string | null;
+            /** Action */
+            action: string;
+            /** Target Type */
+            target_type?: string | null;
+            /** Target Id */
+            target_id?: string | null;
+            /**
+             * Detail
+             * @default {}
+             */
+            detail: Record<string, never>;
+            /** Created At */
+            created_at?: string | null;
+        };
+        /** Body_import_guests_api_w__wedding_slug__admin_import_post */
+        Body_import_guests_api_w__wedding_slug__admin_import_post: {
             /**
              * File
              * Format: binary
              */
             file: string;
         };
-        /** Body_upload_image_api_admin_upload_post */
-        Body_upload_image_api_admin_upload_post: {
+        /** Body_upload_image_api_w__wedding_slug__admin_upload_post */
+        Body_upload_image_api_w__wedding_slug__admin_upload_post: {
             /**
              * File
              * Format: binary
@@ -1144,6 +1766,25 @@ export interface components {
             /** Detail */
             detail?: string | null;
         };
+        /** InviteAccept */
+        InviteAccept: {
+            /** Token */
+            token: string;
+        };
+        /** InviteAccepted */
+        InviteAccepted: {
+            /**
+             * Wedding Id
+             * Format: uuid
+             */
+            wedding_id: string;
+            /** Wedding Slug */
+            wedding_slug: string;
+            /** Couple Names */
+            couple_names: string;
+            /** Role */
+            role: string;
+        };
         /**
          * InviteResponse
          * @description Everything the guest site needs to render the invitation for one link.
@@ -1175,6 +1816,120 @@ export interface components {
             landing: Record<string, never>;
             /** Theme Tokens */
             theme_tokens?: Record<string, never> | null;
+        };
+        /** LifecycleResult */
+        LifecycleResult: {
+            /**
+             * Wedding Id
+             * Format: uuid
+             */
+            wedding_id: string;
+            /** Status */
+            status: string;
+            /** Published */
+            published: boolean;
+            /** Auto Approved */
+            auto_approved?: boolean | null;
+            /**
+             * Rule Trace
+             * @default []
+             */
+            rule_trace: components["schemas"]["RuleTraceEntry"][];
+        };
+        /** MeResponse */
+        MeResponse: {
+            /** User Id */
+            user_id: string;
+            /** Email */
+            email: string;
+            /** Via */
+            via: string;
+            /**
+             * Display Name
+             * @default
+             */
+            display_name: string;
+            /**
+             * Is Platform Admin
+             * @default false
+             */
+            is_platform_admin: boolean;
+        };
+        /** MemberAdmin */
+        MemberAdmin: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** User Id */
+            user_id?: string | null;
+            /** Email */
+            email?: string | null;
+            /**
+             * Display Name
+             * @default
+             */
+            display_name: string;
+            /** Role */
+            role: string;
+            /** Status */
+            status: string;
+            /** Invited By */
+            invited_by?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Invite Expires At */
+            invite_expires_at?: string | null;
+        };
+        /** MemberInviteCreate */
+        MemberInviteCreate: {
+            /** Email */
+            email: string;
+            /**
+             * Role
+             * @default admin
+             */
+            role: string;
+        };
+        /** MemberInvited */
+        MemberInvited: {
+            member: components["schemas"]["MemberAdmin"];
+            /** Accept Path */
+            accept_path: string;
+        };
+        /** MemberRoleUpdate */
+        MemberRoleUpdate: {
+            /** Role */
+            role: string;
+        };
+        /**
+         * MyWedding
+         * @description One row of the post-login dashboard: a wedding + the caller's role.
+         */
+        MyWedding: {
+            /**
+             * Wedding Id
+             * Format: uuid
+             */
+            wedding_id: string;
+            /** Slug */
+            slug: string;
+            /** Couple Names */
+            couple_names: string;
+            /** Role */
+            role: string;
+            /** Status */
+            status: string;
+            /** Published */
+            published: boolean;
+            /**
+             * Guest Count
+             * @default 0
+             */
+            guest_count: number;
+            /** Created At */
+            created_at?: string | null;
         };
         /**
          * OptionCount
@@ -1224,6 +1979,209 @@ export interface components {
              */
             groups: components["schemas"]["GroupBreakdown"][];
             total: components["schemas"]["GroupBreakdown"];
+        };
+        /** PlanAdmin */
+        PlanAdmin: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /**
+             * Entitlements
+             * @default {}
+             */
+            entitlements: Record<string, never>;
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
+            /** Created At */
+            created_at?: string | null;
+        };
+        /** PlanAssign */
+        PlanAssign: {
+            /** Plan Id */
+            plan_id?: string | null;
+            /** Overrides */
+            overrides?: Record<string, never> | null;
+            /** Valid Until */
+            valid_until?: string | null;
+        };
+        /** PlanCreate */
+        PlanCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /** Entitlements */
+            entitlements?: Record<string, never>;
+        };
+        /** PlanUpdate */
+        PlanUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Is Default */
+            is_default?: boolean | null;
+            /** Entitlements */
+            entitlements?: Record<string, never> | null;
+            /** Archived */
+            archived?: boolean | null;
+        };
+        /**
+         * PlatformSettingsPayload
+         * @description The platform_settings 'approval' blob (rules editor). Whole-blob PUT.
+         */
+        PlatformSettingsPayload: {
+            /**
+             * Auto Approve
+             * @default false
+             */
+            auto_approve: boolean;
+            /**
+             * Require Verified Email
+             * @default true
+             */
+            require_verified_email: boolean;
+            /**
+             * Min Account Age Hours
+             * @default 0
+             */
+            min_account_age_hours: number;
+            /**
+             * Max Weddings Per Account
+             * @default 3
+             */
+            max_weddings_per_account: number;
+            /**
+             * Max Guests At Submission
+             * @default 500
+             */
+            max_guests_at_submission: number;
+            /**
+             * Banned Words
+             * @default []
+             */
+            banned_words: string[];
+        };
+        /** PlatformStats */
+        PlatformStats: {
+            /**
+             * Weddings By Status
+             * @default {}
+             */
+            weddings_by_status: {
+                [key: string]: number;
+            };
+            /**
+             * Total Users
+             * @default 0
+             */
+            total_users: number;
+            /**
+             * Total Guests
+             * @default 0
+             */
+            total_guests: number;
+            /**
+             * Rsvps Last 7 Days
+             * @default 0
+             */
+            rsvps_last_7_days: number;
+            /**
+             * Signups Last 7 Days
+             * @default 0
+             */
+            signups_last_7_days: number;
+        };
+        /** PlatformUser */
+        PlatformUser: {
+            /** User Id */
+            user_id: string;
+            /** Email */
+            email: string;
+            /**
+             * Display Name
+             * @default
+             */
+            display_name: string;
+            /**
+             * Disabled
+             * @default false
+             */
+            disabled: boolean;
+            /**
+             * Is Platform Admin
+             * @default false
+             */
+            is_platform_admin: boolean;
+            /**
+             * Wedding Count
+             * @default 0
+             */
+            wedding_count: number;
+            /** Created At */
+            created_at?: string | null;
+        };
+        /** PlatformWedding */
+        PlatformWedding: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Slug */
+            slug: string;
+            /** Couple Names */
+            couple_names: string;
+            /** Status */
+            status: string;
+            /** Published */
+            published: boolean;
+            /** Owner Email */
+            owner_email?: string | null;
+            /**
+             * Member Count
+             * @default 0
+             */
+            member_count: number;
+            /**
+             * Guest Count
+             * @default 0
+             */
+            guest_count: number;
+            /** Plan Name */
+            plan_name?: string | null;
+            /** Created At */
+            created_at?: string | null;
+        };
+        /** PublishUpdate */
+        PublishUpdate: {
+            /** Published */
+            published: boolean;
         };
         /** QuestionAdmin */
         QuestionAdmin: {
@@ -1464,6 +2422,26 @@ export interface components {
              */
             answers: components["schemas"]["AnswerSubmit"][];
         };
+        /** RuleTraceEntry */
+        RuleTraceEntry: {
+            /** Rule */
+            rule: string;
+            /** Ok */
+            ok: boolean;
+            /** Detail */
+            detail?: string | null;
+        };
+        /** SlugCheck */
+        SlugCheck: {
+            /** Slug */
+            slug: string;
+            /** Available */
+            available: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Suggestion */
+            suggestion?: string | null;
+        };
         /** StoryArcAdmin */
         StoryArcAdmin: {
             /**
@@ -1565,6 +2543,11 @@ export interface components {
             /** Url */
             url: string;
         };
+        /** UserDisableUpdate */
+        UserDisableUpdate: {
+            /** Disabled */
+            disabled: boolean;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1573,6 +2556,56 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** WeddingCreate */
+        WeddingCreate: {
+            /** Couple Names */
+            couple_names: string;
+            /** Slug */
+            slug: string;
+            /** Venue */
+            venue?: string | null;
+            /** Date Iso */
+            date_iso?: string | null;
+            /** Date Display */
+            date_display?: string | null;
+        };
+        /** WeddingCreated */
+        WeddingCreated: {
+            /**
+             * Wedding Id
+             * Format: uuid
+             */
+            wedding_id: string;
+            /** Slug */
+            slug: string;
+            /** Couple Names */
+            couple_names: string;
+            /** Status */
+            status: string;
+            /** Admin Path */
+            admin_path: string;
+        };
+        /** WeddingPlanAdmin */
+        WeddingPlanAdmin: {
+            /**
+             * Wedding Id
+             * Format: uuid
+             */
+            wedding_id: string;
+            plan?: components["schemas"]["PlanAdmin"] | null;
+            /**
+             * Overrides
+             * @default {}
+             */
+            overrides: Record<string, never>;
+            /**
+             * Effective
+             * @default {}
+             */
+            effective: Record<string, never>;
+            /** Valid Until */
+            valid_until?: string | null;
         };
         /**
          * WeddingPublic
@@ -1587,6 +2620,14 @@ export interface components {
             content: Record<string, never>;
             /** Theme Tokens */
             theme_tokens?: Record<string, never> | null;
+        };
+        /**
+         * WeddingSettingsUpdate
+         * @description Owner-editable per-wedding admin settings (not guest content).
+         */
+        WeddingSettingsUpdate: {
+            /** Admins Can Publish */
+            admins_can_publish?: boolean | null;
         };
         /**
          * WishAdmin
@@ -1835,13 +2876,211 @@ export interface operations {
             };
         };
     };
-    me_api_admin_me_get: {
+    get_wedding_landing_api_w__wedding_slug__landing_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LandingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    me_api_me_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_weddings_api_me_weddings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyWedding"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    slug_check_api_weddings_slug_check_get: {
+        parameters: {
+            query: {
+                slug: string;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlugCheck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_wedding_endpoint_api_weddings_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeddingCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeddingCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_invite_api_invites_accept_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteAccept"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    me_api_w__wedding_slug__admin_me_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1866,13 +3105,15 @@ export interface operations {
             };
         };
     };
-    list_guests_api_admin_guests_get: {
+    list_guests_api_w__wedding_slug__admin_guests_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -1897,13 +3138,15 @@ export interface operations {
             };
         };
     };
-    create_guest_api_admin_guests_post: {
+    create_guest_api_w__wedding_slug__admin_guests_post: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -1932,7 +3175,7 @@ export interface operations {
             };
         };
     };
-    delete_guest_api_admin_guests__guest_id__delete: {
+    delete_guest_api_w__wedding_slug__admin_guests__guest_id__delete: {
         parameters: {
             query?: never;
             header?: {
@@ -1940,6 +3183,7 @@ export interface operations {
             };
             path: {
                 guest_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -1963,7 +3207,7 @@ export interface operations {
             };
         };
     };
-    update_guest_api_admin_guests__guest_id__patch: {
+    update_guest_api_w__wedding_slug__admin_guests__guest_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -1971,6 +3215,7 @@ export interface operations {
             };
             path: {
                 guest_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2000,7 +3245,7 @@ export interface operations {
             };
         };
     };
-    set_guest_rsvp_api_admin_guests__guest_id__rsvp_put: {
+    set_guest_rsvp_api_w__wedding_slug__admin_guests__guest_id__rsvp_put: {
         parameters: {
             query?: never;
             header?: {
@@ -2008,6 +3253,7 @@ export interface operations {
             };
             path: {
                 guest_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2037,13 +3283,15 @@ export interface operations {
             };
         };
     };
-    bulk_set_rsvp_api_admin_guests_bulk_rsvp_post: {
+    bulk_set_rsvp_api_w__wedding_slug__admin_guests_bulk_rsvp_post: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -2072,13 +3320,15 @@ export interface operations {
             };
         };
     };
-    bulk_delete_guests_api_admin_guests_bulk_delete_post: {
+    bulk_delete_guests_api_w__wedding_slug__admin_guests_bulk_delete_post: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -2107,7 +3357,7 @@ export interface operations {
             };
         };
     };
-    delete_companion_api_admin_companions__companion_id__delete: {
+    delete_companion_api_w__wedding_slug__admin_companions__companion_id__delete: {
         parameters: {
             query?: never;
             header?: {
@@ -2115,6 +3365,7 @@ export interface operations {
             };
             path: {
                 companion_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2138,7 +3389,7 @@ export interface operations {
             };
         };
     };
-    update_companion_api_admin_companions__companion_id__patch: {
+    update_companion_api_w__wedding_slug__admin_companions__companion_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -2146,6 +3397,7 @@ export interface operations {
             };
             path: {
                 companion_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2175,13 +3427,15 @@ export interface operations {
             };
         };
     };
-    list_questions_api_admin_questions_get: {
+    list_questions_api_w__wedding_slug__admin_questions_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2206,13 +3460,15 @@ export interface operations {
             };
         };
     };
-    create_question_api_admin_questions_post: {
+    create_question_api_w__wedding_slug__admin_questions_post: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -2241,7 +3497,7 @@ export interface operations {
             };
         };
     };
-    delete_question_api_admin_questions__question_id__delete: {
+    delete_question_api_w__wedding_slug__admin_questions__question_id__delete: {
         parameters: {
             query?: never;
             header?: {
@@ -2249,6 +3505,7 @@ export interface operations {
             };
             path: {
                 question_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2272,7 +3529,7 @@ export interface operations {
             };
         };
     };
-    update_question_api_admin_questions__question_id__patch: {
+    update_question_api_w__wedding_slug__admin_questions__question_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -2280,6 +3537,7 @@ export interface operations {
             };
             path: {
                 question_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2309,13 +3567,15 @@ export interface operations {
             };
         };
     };
-    get_content_api_admin_content_get: {
+    get_content_api_w__wedding_slug__admin_content_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2340,13 +3600,15 @@ export interface operations {
             };
         };
     };
-    update_content_api_admin_content_patch: {
+    update_content_api_w__wedding_slug__admin_content_patch: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -2375,13 +3637,15 @@ export interface operations {
             };
         };
     };
-    list_story_arcs_api_admin_story_arcs_get: {
+    list_story_arcs_api_w__wedding_slug__admin_story_arcs_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2406,13 +3670,15 @@ export interface operations {
             };
         };
     };
-    create_story_arc_api_admin_story_arcs_post: {
+    create_story_arc_api_w__wedding_slug__admin_story_arcs_post: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -2441,7 +3707,7 @@ export interface operations {
             };
         };
     };
-    delete_story_arc_api_admin_story_arcs__arc_id__delete: {
+    delete_story_arc_api_w__wedding_slug__admin_story_arcs__arc_id__delete: {
         parameters: {
             query?: never;
             header?: {
@@ -2449,6 +3715,7 @@ export interface operations {
             };
             path: {
                 arc_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2472,7 +3739,7 @@ export interface operations {
             };
         };
     };
-    update_story_arc_api_admin_story_arcs__arc_id__patch: {
+    update_story_arc_api_w__wedding_slug__admin_story_arcs__arc_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -2480,6 +3747,7 @@ export interface operations {
             };
             path: {
                 arc_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2509,18 +3777,20 @@ export interface operations {
             };
         };
     };
-    upload_image_api_admin_upload_post: {
+    upload_image_api_w__wedding_slug__admin_upload_post: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_image_api_admin_upload_post"];
+                "multipart/form-data": components["schemas"]["Body_upload_image_api_w__wedding_slug__admin_upload_post"];
             };
         };
         responses: {
@@ -2544,13 +3814,15 @@ export interface operations {
             };
         };
     };
-    list_responses_api_admin_responses_get: {
+    list_responses_api_w__wedding_slug__admin_responses_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2575,13 +3847,15 @@ export interface operations {
             };
         };
     };
-    summary_api_admin_summary_get: {
+    summary_api_w__wedding_slug__admin_summary_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2606,7 +3880,7 @@ export interface operations {
             };
         };
     };
-    summary_pivot_api_admin_summary_pivot_get: {
+    summary_pivot_api_w__wedding_slug__admin_summary_pivot_get: {
         parameters: {
             query?: {
                 by?: string;
@@ -2617,7 +3891,9 @@ export interface operations {
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2642,13 +3918,15 @@ export interface operations {
             };
         };
     };
-    summary_timeline_api_admin_summary_timeline_get: {
+    summary_timeline_api_w__wedding_slug__admin_summary_timeline_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2673,13 +3951,15 @@ export interface operations {
             };
         };
     };
-    list_wishes_api_admin_wishes_get: {
+    list_wishes_api_w__wedding_slug__admin_wishes_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2704,7 +3984,7 @@ export interface operations {
             };
         };
     };
-    delete_wish_api_admin_wishes__wish_id__delete: {
+    delete_wish_api_w__wedding_slug__admin_wishes__wish_id__delete: {
         parameters: {
             query?: never;
             header?: {
@@ -2712,6 +3992,7 @@ export interface operations {
             };
             path: {
                 wish_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2735,7 +4016,7 @@ export interface operations {
             };
         };
     };
-    moderate_wish_api_admin_wishes__wish_id__patch: {
+    moderate_wish_api_w__wedding_slug__admin_wishes__wish_id__patch: {
         parameters: {
             query?: never;
             header?: {
@@ -2743,6 +4024,7 @@ export interface operations {
             };
             path: {
                 wish_id: string;
+                wedding_slug: string;
             };
             cookie?: never;
         };
@@ -2772,13 +4054,15 @@ export interface operations {
             };
         };
     };
-    export_xlsx_api_admin_export_xlsx_get: {
+    export_xlsx_api_w__wedding_slug__admin_export_xlsx_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2803,13 +4087,15 @@ export interface operations {
             };
         };
     };
-    template_xlsx_api_admin_template_xlsx_get: {
+    template_xlsx_api_w__wedding_slug__admin_template_xlsx_get: {
         parameters: {
             query?: never;
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -2834,7 +4120,7 @@ export interface operations {
             };
         };
     };
-    import_guests_api_admin_import_post: {
+    import_guests_api_w__wedding_slug__admin_import_post: {
         parameters: {
             query?: {
                 commit?: boolean;
@@ -2842,12 +4128,14 @@ export interface operations {
             header?: {
                 authorization?: string | null;
             };
-            path?: never;
+            path: {
+                wedding_slug: string;
+            };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_import_guests_api_admin_import_post"];
+                "multipart/form-data": components["schemas"]["Body_import_guests_api_w__wedding_slug__admin_import_post"];
             };
         };
         responses: {
@@ -2858,6 +4146,966 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_for_approval_api_w__wedding_slug__admin_submit_approval_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_published_api_w__wedding_slug__admin_publish_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_wedding_settings_api_w__wedding_slug__admin_settings_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeddingSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_wedding_api_w__wedding_slug__admin_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_members_api_w__wedding_slug__admin_members_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberAdmin"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invite_member_api_w__wedding_slug__admin_members_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberInviteCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberInvited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_member_api_w__wedding_slug__admin_members__member_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                member_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_member_role_api_w__wedding_slug__admin_members__member_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                member_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transfer_ownership_api_w__wedding_slug__admin_members__member_id__transfer_ownership_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                member_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_weddings_api_platform_weddings_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformWedding"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_wedding_api_platform_weddings__wedding_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApprovalDecision"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformWedding"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deny_wedding_api_platform_weddings__wedding_id__deny_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformWedding"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suspend_wedding_api_platform_weddings__wedding_id__suspend_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApprovalDecision"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformWedding"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reinstate_wedding_api_platform_weddings__wedding_id__reinstate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformWedding"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approval_queue_api_platform_approvals_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_settings_approval_api_platform_settings_approval_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSettingsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_settings_approval_api_platform_settings_approval_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformSettingsPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSettingsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_platform_users_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUser"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_user_disabled_api_platform_users__user_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserDisableUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_platform_admins_api_platform_admins_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    grant_platform_admin_api_platform_admins__user_id__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_platform_admin_api_platform_admins__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stats_api_platform_stats_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    audit_tail_api_platform_audit_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                wedding_id?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_plans_api_platform_plans_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanAdmin"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_plan_api_platform_plans_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_plan_api_platform_plans__plan_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_plan_api_platform_weddings__wedding_id__plan_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanAssign"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeddingPlanAdmin"];
                 };
             };
             /** @description Validation Error */

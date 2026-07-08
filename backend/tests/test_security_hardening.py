@@ -80,7 +80,7 @@ def guest_slug(db_session):
     wedding = Wedding(
         slug="w",
         couple_names="Alex & Sam",
-        status="active",
+        status="active", published=True,
         owner_id=None,
         event_details={
             "venue": "The Garden Hall",

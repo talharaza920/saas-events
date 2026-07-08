@@ -63,7 +63,7 @@ def wedding(db_session):
     w = Wedding(
         slug="alex-and-sam",
         couple_names="Alex & Sam",
-        status="active",
+        status="active", published=True,
         owner_id="dev",
         event_details={},
         content={},
@@ -124,7 +124,7 @@ def test_override_sees_only_assigned_even_if_hidden(db_session, wedding):
 
 
 def test_cross_tenant_arc_never_resolves(db_session, wedding):
-    other = Wedding(slug="other", couple_names="O", status="active", owner_id="x",
+    other = Wedding(slug="other", couple_names="O", status="active", published=True, owner_id="x",
                     event_details={}, content={})
     db_session.add(other)
     db_session.commit()
@@ -145,7 +145,7 @@ def test_admin_override_round_trip_and_no_tier_leak(client, db_session, wedding)
 
     # Assign only arc one via the admin API.
     r = client.patch(
-        f"/api/admin/guests/{g.id}", headers=auth(),
+        f"/api/w/alex-and-sam/admin/guests/{g.id}", headers=auth(),
         json={"story_arc_ids": [str(a1.id)]},
     )
     assert r.status_code == 200
@@ -161,7 +161,7 @@ def test_admin_override_round_trip_and_no_tier_leak(client, db_session, wedding)
 
     # Clearing it ([] ) restores the default (both arcs).
     r = client.patch(
-        f"/api/admin/guests/{g.id}", headers=auth(), json={"story_arc_ids": []}
+        f"/api/w/alex-and-sam/admin/guests/{g.id}", headers=auth(), json={"story_arc_ids": []}
     )
     assert r.json()["story_arc_ids"] == []
     inv = client.get("/api/i/solo-x").json()
@@ -173,7 +173,7 @@ def test_admin_rejects_unknown_arc(client, db_session, wedding):
     import uuid
 
     r = client.patch(
-        f"/api/admin/guests/{g.id}", headers=auth(),
+        f"/api/w/alex-and-sam/admin/guests/{g.id}", headers=auth(),
         json={"story_arc_ids": [str(uuid.uuid4())]},
     )
     assert r.status_code == 422

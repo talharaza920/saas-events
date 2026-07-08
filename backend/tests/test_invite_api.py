@@ -66,7 +66,7 @@ def wedding(db_session):
     w = Wedding(
         slug="alex-and-sam",
         couple_names="Alex & Sam",
-        status="active",
+        status="active", published=True,
         event_details={"venue": "The Garden Hall", "date_iso": "2027-01-01"},
         content={"cover": {"tagline": "Ever after"}},
         theme_tokens=None,

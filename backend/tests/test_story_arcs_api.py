@@ -63,7 +63,7 @@ def wedding(db_session):
     w = Wedding(
         slug="alex-and-sam",
         couple_names="Alex & Sam",
-        status="active",
+        status="active", published=True,
         owner_id="dev",  # the dev-token principal's sub; claims this wedding
         event_details={"venue": "The Garden Hall"},
         content={"cover": {"greeting": "Dear {name},"}},
@@ -90,7 +90,7 @@ def _arc(db, wedding, *, title="Chapter Two", visible=True, sort_order=0, conten
 # --- Story-arc CRUD --------------------------------------------------------
 def test_arc_crud(client, wedding):
     created = client.post(
-        "/api/admin/story-arcs",
+        "/api/w/alex-and-sam/admin/story-arcs",
         headers=auth(),
         json={"title": "Draft", "content": {"heading": "Hi", "beats": []}},
     )
@@ -98,11 +98,11 @@ def test_arc_crud(client, wedding):
     arc_id = created.json()["id"]
     assert created.json()["visible"] is True
 
-    listed = client.get("/api/admin/story-arcs", headers=auth()).json()
+    listed = client.get("/api/w/alex-and-sam/admin/story-arcs", headers=auth()).json()
     assert [a["title"] for a in listed] == ["Draft"]
 
     patched = client.patch(
-        f"/api/admin/story-arcs/{arc_id}",
+        f"/api/w/alex-and-sam/admin/story-arcs/{arc_id}",
         headers=auth(),
         json={"visible": False, "content": {"heading": "Edited", "beats": [{"text": "x"}]}},
     )
@@ -110,28 +110,28 @@ def test_arc_crud(client, wedding):
     assert patched.json()["visible"] is False
     assert patched.json()["content"]["heading"] == "Edited"
 
-    assert client.delete(f"/api/admin/story-arcs/{arc_id}", headers=auth()).status_code == 204
-    assert client.get("/api/admin/story-arcs", headers=auth()).json() == []
+    assert client.delete(f"/api/w/alex-and-sam/admin/story-arcs/{arc_id}", headers=auth()).status_code == 204
+    assert client.get("/api/w/alex-and-sam/admin/story-arcs", headers=auth()).json() == []
 
 
 def test_arc_tenant_scoped(client, db_session, wedding):
-    other = Wedding(slug="other", couple_names="O", status="active", owner_id="someone",
+    other = Wedding(slug="other", couple_names="O", status="active", published=True, owner_id="someone",
                     event_details={}, content={})
     db_session.add(other)
     db_session.commit()
     foreign = _arc(db_session, other, title="Foreign")
     # The dev owner (claimed onto alex-and-sam) can't touch the other wedding's arc.
     assert client.patch(
-        f"/api/admin/story-arcs/{foreign.id}", headers=auth(), json={"title": "Hijack"}
+        f"/api/w/alex-and-sam/admin/story-arcs/{foreign.id}", headers=auth(), json={"title": "Hijack"}
     ).status_code == 404
-    assert client.delete(f"/api/admin/story-arcs/{foreign.id}", headers=auth()).status_code == 404
-    assert client.get("/api/admin/story-arcs", headers=auth()).json() == []
+    assert client.delete(f"/api/w/alex-and-sam/admin/story-arcs/{foreign.id}", headers=auth()).status_code == 404
+    assert client.get("/api/w/alex-and-sam/admin/story-arcs", headers=auth()).json() == []
 
 
 # --- Content editing -------------------------------------------------------
 def test_content_partial_merge(client, wedding):
     r = client.patch(
-        "/api/admin/content",
+        "/api/w/alex-and-sam/admin/content",
         headers=auth(),
         json={"content": {"cover": {"invite_line": "join us!"}}, "couple_names": "T & S"},
     )
@@ -145,7 +145,7 @@ def test_content_partial_merge(client, wedding):
 
 def test_content_theme_tokens_merge(client, wedding):
     r = client.patch(
-        "/api/admin/content",
+        "/api/w/alex-and-sam/admin/content",
         headers=auth(),
         json={"theme_tokens": {"colors": {"primary": "#123456"}}},
     )
@@ -157,7 +157,7 @@ def test_content_theme_tokens_merge(client, wedding):
 def test_upload_local_returns_url(client, wedding):
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 100  # minimal non-empty payload
     r = client.post(
-        "/api/admin/upload",
+        "/api/w/alex-and-sam/admin/upload",
         headers=auth(),
         files={"file": ("mascot.png", png, "image/png")},
     )
@@ -183,7 +183,7 @@ def test_upload_compresses_large_image(client, wedding, tmp_path):
     original = buf.getvalue()
 
     r = client.post(
-        "/api/admin/upload",
+        "/api/w/alex-and-sam/admin/upload",
         headers=auth(),
         files={"file": ("big.png", original, "image/png")},
     )
@@ -198,7 +198,7 @@ def test_upload_compresses_large_image(client, wedding, tmp_path):
 
 def test_upload_rejects_non_image(client, wedding):
     r = client.post(
-        "/api/admin/upload",
+        "/api/w/alex-and-sam/admin/upload",
         headers=auth(),
         files={"file": ("evil.txt", b"hello", "text/plain")},
     )
@@ -207,7 +207,7 @@ def test_upload_rejects_non_image(client, wedding):
 
 def test_upload_requires_auth(client, wedding):
     r = client.post(
-        "/api/admin/upload", files={"file": ("x.png", b"123", "image/png")}
+        "/api/w/alex-and-sam/admin/upload", files={"file": ("x.png", b"123", "image/png")}
     )
     assert r.status_code == 401
 

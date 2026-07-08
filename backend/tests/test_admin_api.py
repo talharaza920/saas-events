@@ -89,6 +89,28 @@ def dev_auth() -> dict:
     return {"Authorization": f"Bearer {DEV_TOKEN}"}
 
 
+def dev_auth_as(email: str) -> dict:
+    """A simulated NON-platform-admin local user (`<token>:<email>` form) — the
+    principal for membership/cross-tenant tests."""
+    return {"Authorization": f"Bearer {DEV_TOKEN}:{email}"}
+
+
+def make_member(db, wedding, email: str, role: str = "owner"):
+    """An active membership for the simulated dev user `email` on `wedding`."""
+    from app.models import MemberRole, MemberStatus, WeddingMember
+
+    m = WeddingMember(
+        wedding_id=wedding.id,
+        user_id=f"dev:{email}",
+        invited_email=email,
+        role=MemberRole(role),
+        status=MemberStatus.active,
+    )
+    db.add(m)
+    db.commit()
+    return m
+
+
 def supabase_auth() -> dict:
     """A bearer token that the patched introspection will accept (any value)."""
     return {"Authorization": "Bearer supabase-access-token"}
@@ -103,7 +125,7 @@ def patch_introspection(monkeypatch, *, email: str | None = ADMIN_EMAIL, valid: 
             from app.auth import _unauthorized
 
             raise _unauthorized("Invalid or expired session")
-        return {"id": "user-1", "email": email}
+        return {"id": "user-1", "email": email, "email_confirmed_at": "2026-01-01T00:00:00Z"}
 
     monkeypatch.setattr(auth_module, "verify_supabase_token", fake)
 
@@ -113,7 +135,7 @@ def wedding(db_session):
     w = Wedding(
         slug="alex-and-sam",
         couple_names="Alex & Sam",
-        status="active",
+        status="active", published=True,
         event_details={"venue": "The Garden Hall"},
         content={},
         theme_tokens=None,
@@ -135,18 +157,18 @@ def _add_guest(db, wedding, *, slug, name, tier=InviteTier.solo, invited=True):
 
 # --- Auth ------------------------------------------------------------------
 def test_no_token_is_401(client, wedding):
-    assert client.get("/api/admin/me").status_code == 401
+    assert client.get("/api/w/alex-and-sam/admin/me").status_code == 401
 
 
 def test_bad_token_is_401(client, wedding, monkeypatch):
     # A non-dev token is introspected; simulate Supabase rejecting it.
     patch_introspection(monkeypatch, valid=False)
-    r = client.get("/api/admin/me", headers={"Authorization": "Bearer nope"})
+    r = client.get("/api/w/alex-and-sam/admin/me", headers={"Authorization": "Bearer nope"})
     assert r.status_code == 401
 
 
 def test_dev_token_grants_access(client, wedding):
-    r = client.get("/api/admin/me", headers=dev_auth())
+    r = client.get("/api/w/alex-and-sam/admin/me", headers=dev_auth())
     assert r.status_code == 200
     body = r.json()
     assert body["via"] == "dev"
@@ -155,21 +177,37 @@ def test_dev_token_grants_access(client, wedding):
 
 def test_valid_supabase_token_allowlisted(client, wedding, monkeypatch):
     patch_introspection(monkeypatch, email=ADMIN_EMAIL)
-    r = client.get("/api/admin/me", headers=supabase_auth())
+    r = client.get("/api/w/alex-and-sam/admin/me", headers=supabase_auth())
     assert r.status_code == 200
     assert r.json()["via"] == "supabase"
     assert r.json()["email"] == ADMIN_EMAIL
 
 
-def test_supabase_token_not_allowlisted_is_403(client, wedding, monkeypatch):
+def test_supabase_stranger_gets_404(client, wedding, monkeypatch):
+    """An authenticated user with NO membership must get the same 404 as a
+    nonexistent wedding — existence is never confirmed to non-members."""
     patch_introspection(monkeypatch, email="stranger@example.com")
-    r = client.get("/api/admin/me", headers=supabase_auth())
+    r = client.get("/api/w/alex-and-sam/admin/me", headers=supabase_auth())
+    assert r.status_code == 404
+    assert client.get("/api/w/no-such-wedding/admin/me", headers=supabase_auth()).status_code == 404
+
+
+def test_unverified_email_is_403(client, wedding, monkeypatch):
+    """Email/password signups must verify before the API works (SAAS_PLAN 1.1)."""
+    import app.auth as auth_module
+
+    def fake(settings, token):
+        return {"id": "user-9", "email": "new@example.com"}  # no email_confirmed_at
+
+    monkeypatch.setattr(auth_module, "verify_supabase_token", fake)
+    r = client.get("/api/w/alex-and-sam/admin/me", headers=supabase_auth())
     assert r.status_code == 403
+    assert "verify" in r.json()["detail"].lower()
 
 
 def test_supabase_token_rejected_is_401(client, wedding, monkeypatch):
     patch_introspection(monkeypatch, valid=False)
-    r = client.get("/api/admin/me", headers=supabase_auth())
+    r = client.get("/api/w/alex-and-sam/admin/me", headers=supabase_auth())
     assert r.status_code == 401
 
 
@@ -178,11 +216,11 @@ def test_dev_token_ignored_in_production(make_client, wedding, monkeypatch):
     # In production the dev token isn't honoured → falls through to introspection,
     # which here rejects it → 401.
     patch_introspection(monkeypatch, valid=False)
-    r = client.get("/api/admin/me", headers=dev_auth())
+    r = client.get("/api/w/alex-and-sam/admin/me", headers=dev_auth())
     assert r.status_code == 401
     # A real allowlisted Supabase session still works in production.
     patch_introspection(monkeypatch, email=ADMIN_EMAIL)
-    assert client.get("/api/admin/me", headers=supabase_auth()).status_code == 200
+    assert client.get("/api/w/alex-and-sam/admin/me", headers=supabase_auth()).status_code == 200
 
 
 # --- Guest CRUD ------------------------------------------------------------
@@ -190,7 +228,7 @@ def test_list_guests_with_rollup(client, db_session, wedding):
     g = _add_guest(db_session, wedding, slug="a-1", name="Riley", tier=InviteTier.plus_one)
     db_session.add(Rsvp(wedding_id=wedding.id, guest_id=g.id, attending=True))
     db_session.commit()
-    rows = client.get("/api/admin/guests", headers=dev_auth()).json()
+    rows = client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json()
     assert len(rows) == 1
     assert rows[0]["invite_tier"] == "plus_one"
     assert rows[0]["rsvp_status"] == "attending"
@@ -200,7 +238,7 @@ def test_list_guests_with_rollup(client, db_session, wedding):
 
 def test_create_guest_generates_link(client, wedding):
     r = client.post(
-        "/api/admin/guests",
+        "/api/w/alex-and-sam/admin/guests",
         headers=dev_auth(),
         json={"name": "New Person", "greeting_name": "New Person", "invite_tier": "plus_family", "side": "Alex"},
     )
@@ -216,7 +254,7 @@ def test_create_guest_generates_link(client, wedding):
 
 def test_create_guest_rejects_bad_tier(client, wedding):
     r = client.post(
-        "/api/admin/guests", headers=dev_auth(), json={"name": "X", "invite_tier": "vip"}
+        "/api/w/alex-and-sam/admin/guests", headers=dev_auth(), json={"name": "X", "invite_tier": "vip"}
     )
     assert r.status_code == 422
 
@@ -224,14 +262,14 @@ def test_create_guest_rejects_bad_tier(client, wedding):
 def test_create_guest_validates_and_normalizes_contacts(client, wedding):
     # Bad email rejected.
     bad = client.post(
-        "/api/admin/guests",
+        "/api/w/alex-and-sam/admin/guests",
         headers=dev_auth(),
         json={"name": "Bad", "greeting_name": "Bad", "email": "nope"},
     )
     assert bad.status_code == 422
     # Valid contacts: phone normalized to E.164, email domain lowercased.
     ok = client.post(
-        "/api/admin/guests",
+        "/api/w/alex-and-sam/admin/guests",
         headers=dev_auth(),
         json={"name": "Reachable", "greeting_name": "Reachable", "email": "Me@Example.COM", "phone": "91234567"},
     )
@@ -244,7 +282,7 @@ def test_create_guest_validates_and_normalizes_contacts(client, wedding):
 def test_expected_party_size_set_clear_and_admin_only(client, db_session, wedding):
     # Owner can record an estimate at create time.
     created = client.post(
-        "/api/admin/guests",
+        "/api/w/alex-and-sam/admin/guests",
         headers=dev_auth(),
         json={"name": "Estimator", "greeting_name": "Estimator", "invite_tier": "plus_family", "expected_party_size": 4},
     )
@@ -255,24 +293,24 @@ def test_expected_party_size_set_clear_and_admin_only(client, db_session, weddin
 
     # Omitting it defaults to null (no estimate yet).
     none_body = client.post(
-        "/api/admin/guests", headers=dev_auth(),
+        "/api/w/alex-and-sam/admin/guests", headers=dev_auth(),
         json={"name": "No Est", "greeting_name": "No Est"},
     ).json()
     assert none_body["expected_party_size"] is None
 
     # Update can change it, and null clears it.
     changed = client.patch(
-        f"/api/admin/guests/{gid}", headers=dev_auth(), json={"expected_party_size": 2}
+        f"/api/w/alex-and-sam/admin/guests/{gid}", headers=dev_auth(), json={"expected_party_size": 2}
     )
     assert changed.json()["expected_party_size"] == 2
     cleared = client.patch(
-        f"/api/admin/guests/{gid}", headers=dev_auth(), json={"expected_party_size": None}
+        f"/api/w/alex-and-sam/admin/guests/{gid}", headers=dev_auth(), json={"expected_party_size": None}
     )
     assert cleared.json()["expected_party_size"] is None
 
     # Negative is rejected by the schema.
     bad = client.post(
-        "/api/admin/guests", headers=dev_auth(),
+        "/api/w/alex-and-sam/admin/guests", headers=dev_auth(),
         json={"name": "Neg", "greeting_name": "Neg", "expected_party_size": -1},
     )
     assert bad.status_code == 422
@@ -286,7 +324,7 @@ def test_expected_party_size_set_clear_and_admin_only(client, db_session, weddin
 def test_update_guest_tier(client, db_session, wedding):
     g = _add_guest(db_session, wedding, slug="u-1", name="Up Grade", tier=InviteTier.solo)
     r = client.patch(
-        f"/api/admin/guests/{g.id}",
+        f"/api/w/alex-and-sam/admin/guests/{g.id}",
         headers=dev_auth(),
         json={"invite_tier": "plus_one", "relationship": "Cousin"},
     )
@@ -297,8 +335,8 @@ def test_update_guest_tier(client, db_session, wedding):
 
 def test_delete_guest(client, db_session, wedding):
     g = _add_guest(db_session, wedding, slug="d-1", name="Gone")
-    assert client.delete(f"/api/admin/guests/{g.id}", headers=dev_auth()).status_code == 204
-    assert client.get("/api/admin/guests", headers=dev_auth()).json() == []
+    assert client.delete(f"/api/w/alex-and-sam/admin/guests/{g.id}", headers=dev_auth()).status_code == 204
+    assert client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json() == []
 
 
 # --- Companions (the +1 / kids on an RSVP) ---------------------------------
@@ -332,7 +370,7 @@ def _party_with_companions(db, wedding):
 
 def test_companion_id_in_guest_rollup(client, db_session, wedding):
     g, adult, child, _, _ = _party_with_companions(db_session, wedding)
-    rows = client.get("/api/admin/guests", headers=dev_auth()).json()
+    rows = client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json()
     comps = {c["name"]: c for c in rows[0]["companions"]}
     assert comps["May"]["id"] == str(adult.id)
     assert comps["Leo"]["id"] == str(child.id)
@@ -344,7 +382,7 @@ def test_update_companion(client, db_session, wedding):
     _, adult, child, diet_q, age_q = _party_with_companions(db_session, wedding)
     # Edit the adult's name + replace their answers (the dietary question applies).
     r = client.patch(
-        f"/api/admin/companions/{adult.id}",
+        f"/api/w/alex-and-sam/admin/companions/{adult.id}",
         headers=dev_auth(),
         json={"name": "May Tan", "answers": [
             {"question_id": str(diet_q.id), "value": {"choices": ["Vegetarian"]}},
@@ -356,7 +394,7 @@ def test_update_companion(client, db_session, wedding):
     assert body["answers"][0]["value"] == {"choices": ["Vegetarian"]}
     # Edit the child's age answer.
     r2 = client.patch(
-        f"/api/admin/companions/{child.id}", headers=dev_auth(),
+        f"/api/w/alex-and-sam/admin/companions/{child.id}", headers=dev_auth(),
         json={"answers": [{"question_id": str(age_q.id), "value": {"number": 7}}]},
     )
     assert r2.status_code == 200 and r2.json()["answers"][0]["value"] == {"number": 7}
@@ -366,7 +404,7 @@ def test_update_companion_rejects_inapplicable_answer(client, db_session, weddin
     """Answering the children-only Age question for an adult companion → 422."""
     _, adult, _, _, age_q = _party_with_companions(db_session, wedding)
     r = client.patch(
-        f"/api/admin/companions/{adult.id}", headers=dev_auth(),
+        f"/api/w/alex-and-sam/admin/companions/{adult.id}", headers=dev_auth(),
         json={"answers": [{"question_id": str(age_q.id), "value": {"number": 40}}]},
     )
     assert r.status_code == 422
@@ -374,55 +412,70 @@ def test_update_companion_rejects_inapplicable_answer(client, db_session, weddin
 
 def test_delete_companion(client, db_session, wedding):
     g, adult, _, _, _ = _party_with_companions(db_session, wedding)
-    assert client.delete(f"/api/admin/companions/{adult.id}", headers=dev_auth()).status_code == 204
-    rows = client.get("/api/admin/guests", headers=dev_auth()).json()
+    assert client.delete(f"/api/w/alex-and-sam/admin/companions/{adult.id}", headers=dev_auth()).status_code == 204
+    rows = client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json()
     names = [c["name"] for c in rows[0]["companions"]]
     assert names == ["Leo"] and rows[0]["party_size"] == 2  # primary + remaining child
 
 
 def test_companion_endpoints_are_tenant_scoped(make_client, db_session):
-    a = Wedding(slug="wed-a", couple_names="A", status="active", owner_id="dev",
+    a = Wedding(slug="wed-a", couple_names="A", status="active", published=True,
                 event_details={}, content={})
-    b = Wedding(slug="wed-b", couple_names="B", status="active", owner_id="other",
+    b = Wedding(slug="wed-b", couple_names="B", status="active", published=True,
                 event_details={}, content={})
     db_session.add_all([a, b])
     db_session.commit()
+    make_member(db_session, a, "alice@example.com", role="owner")
     _, _, child_b, _, _ = _party_with_companions(db_session, b)
-    client = make_client()  # dev owner → wedding A
+    client = make_client()
+    alice = dev_auth_as("alice@example.com")
+    # B's companion id through A's (authorized) path → 404, read or write.
     assert client.patch(
-        f"/api/admin/companions/{child_b.id}", headers=dev_auth(), json={"name": "x"}
+        f"/api/w/wed-a/admin/companions/{child_b.id}", headers=alice, json={"name": "x"}
     ).status_code == 404
     assert client.delete(
-        f"/api/admin/companions/{child_b.id}", headers=dev_auth()
+        f"/api/w/wed-a/admin/companions/{child_b.id}", headers=alice
     ).status_code == 404
 
 
 # --- Tenant scoping --------------------------------------------------------
-def test_admin_only_sees_own_wedding(make_client, db_session):
-    # Two weddings; the dev owner is claimed onto wedding A.
-    a = Wedding(slug="wed-a", couple_names="A", status="active", owner_id="dev",
+def test_member_only_sees_own_wedding(make_client, db_session):
+    """The #1 SaaS failure mode: a member of wedding A must 404 on wedding B —
+    both on B's own paths and when smuggling B's ids through A's paths."""
+    a = Wedding(slug="wed-a", couple_names="A", status="active", published=True,
                 event_details={}, content={})
-    b = Wedding(slug="wed-b", couple_names="B", status="active", owner_id="other",
+    b = Wedding(slug="wed-b", couple_names="B", status="active", published=True,
                 event_details={}, content={})
     db_session.add_all([a, b])
     db_session.commit()
+    make_member(db_session, a, "alice@example.com", role="owner")
+    make_member(db_session, b, "bob@example.com", role="owner")
     ga = _add_guest(db_session, a, slug="ga", name="Guest A")
     gb = _add_guest(db_session, b, slug="gb", name="Guest B")
 
     client = make_client()
-    rows = client.get("/api/admin/guests", headers=dev_auth()).json()
+    alice = dev_auth_as("alice@example.com")
+    # Alice sees her own wedding…
+    rows = client.get("/api/w/wed-a/admin/guests", headers=alice).json()
     assert [r["name"] for r in rows] == ["Guest A"]
-    # Cannot touch wedding B's guest.
+    # …but wedding B is a plain 404 for her, on every surface:
+    assert client.get("/api/w/wed-b/admin/guests", headers=alice).status_code == 404
+    assert client.get("/api/w/wed-b/admin/me", headers=alice).status_code == 404
+    # B's guest ids smuggled through A's (authorized) path also 404.
     assert client.patch(
-        f"/api/admin/guests/{gb.id}", headers=dev_auth(), json={"name": "Hijack"}
+        f"/api/w/wed-a/admin/guests/{gb.id}", headers=alice, json={"name": "Hijack"}
     ).status_code == 404
-    assert client.delete(f"/api/admin/guests/{gb.id}", headers=dev_auth()).status_code == 404
+    assert client.delete(f"/api/w/wed-a/admin/guests/{gb.id}", headers=alice).status_code == 404
+    # And A's own guest stays editable (the guard didn't overshoot).
+    assert client.patch(
+        f"/api/w/wed-a/admin/guests/{ga.id}", headers=alice, json={"name": "Renamed"}
+    ).status_code == 200
 
 
 # --- Questions CRUD --------------------------------------------------------
 def test_question_crud(client, wedding):
     created = client.post(
-        "/api/admin/questions",
+        "/api/w/alex-and-sam/admin/questions",
         headers=dev_auth(),
         json={"prompt": "Song request?", "qtype": "text", "required": False},
     )
@@ -432,12 +485,12 @@ def test_question_crud(client, wedding):
     assert created.json()["scope"] == "invitee"
     assert created.json()["applies_to"] == "everyone"
 
-    listed = client.get("/api/admin/questions", headers=dev_auth()).json()
+    listed = client.get("/api/w/alex-and-sam/admin/questions", headers=dev_auth()).json()
     assert len(listed) == 1 and listed[0]["prompt"] == "Song request?"
 
     # Patch type/scope/applies_to together (e.g. make it a per-person multi-select).
     patched = client.patch(
-        f"/api/admin/questions/{qid}", headers=dev_auth(),
+        f"/api/w/alex-and-sam/admin/questions/{qid}", headers=dev_auth(),
         json={"required": True, "qtype": "multi_choice", "options": ["A", "B"],
               "scope": "person", "applies_to": "children"},
     )
@@ -447,13 +500,13 @@ def test_question_crud(client, wedding):
     assert patched.json()["scope"] == "person"
     assert patched.json()["applies_to"] == "children"
 
-    assert client.delete(f"/api/admin/questions/{qid}", headers=dev_auth()).status_code == 204
-    assert client.get("/api/admin/questions", headers=dev_auth()).json() == []
+    assert client.delete(f"/api/w/alex-and-sam/admin/questions/{qid}", headers=dev_auth()).status_code == 204
+    assert client.get("/api/w/alex-and-sam/admin/questions", headers=dev_auth()).json() == []
 
 
 def test_question_create_rejects_extra_field(client, wedding):
     r = client.post(
-        "/api/admin/questions",
+        "/api/w/alex-and-sam/admin/questions",
         headers=dev_auth(),
         json={"prompt": "Q", "qtype": "text", "wedding_id": "x"},
     )
@@ -496,7 +549,7 @@ def _seed_responses(db, wedding):
 
 def test_summary_rollup(client, db_session, wedding):
     _seed_responses(db_session, wedding)
-    s = client.get("/api/admin/summary", headers=dev_auth()).json()
+    s = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()
     assert s["total_guests"] == 3
     assert s["attending"] == 1
     assert s["declined"] == 1
@@ -526,7 +579,7 @@ def test_summary_expected_head_count_sums_estimates(client, db_session, wedding)
     a.expected_party_size = 4
     b.expected_party_size = 2
     db_session.commit()
-    s = client.get("/api/admin/summary", headers=dev_auth()).json()
+    s = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()
     assert s["expected_head_count"] == 7
 
 
@@ -556,7 +609,7 @@ def test_summary_breakdown_person_multichoice(client, db_session, wedding):
         # kid: left unanswered
     ]
     db_session.commit()
-    s = client.get("/api/admin/summary", headers=dev_auth()).json()
+    s = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()
     bd = {b["prompt"]: b for b in s["question_breakdowns"]}["Dietary"]
     assert bd["scope"] == "person" and bd["applies_to"] == "everyone"
     assert bd["applicable"] == 3  # primary + adult + child are all asked
@@ -568,7 +621,7 @@ def test_summary_by_side(client, db_session, wedding):
     """by_side groups the list per guest side with each side's RSVP rollup; it's
     empty when nobody has a side, and pins 'Unassigned' last when some do."""
     # No sides yet → no split.
-    assert client.get("/api/admin/summary", headers=dev_auth()).json()["by_side"] == []
+    assert client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()["by_side"] == []
 
     th = _add_guest(db_session, wedding, slug="s-th", name="Th One", tier=InviteTier.plus_one)
     th.side = "Alex"
@@ -582,7 +635,7 @@ def test_summary_by_side(client, db_session, wedding):
     db_session.add(Rsvp(wedding_id=wedding.id, guest_id=sh.id, attending=False))
     db_session.commit()
 
-    rows = client.get("/api/admin/summary", headers=dev_auth()).json()["by_side"]
+    rows = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()["by_side"]
     by = {row["label"]: row for row in rows}
     assert rows[-1]["label"] == "Unassigned"  # pinned last
     assert by["Alex"]["attending"] == 1 and by["Alex"]["head_count"] == 2  # primary + 1
@@ -595,7 +648,7 @@ def test_summary_capacity_and_invited_people(client, db_session, wedding):
     and `invited_people` tallies the expected size of invited-but-unreplied guests
     (overall and per side), excluding pending and declined."""
     # Default: no capacity configured.
-    s0 = client.get("/api/admin/summary", headers=dev_auth()).json()
+    s0 = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()
     assert s0["capacity"] == {"total": None, "by_side": {}}
 
     # One attending (head 2), one invited (expected 3), one pending, one declined — all Alex.
@@ -615,16 +668,16 @@ def test_summary_capacity_and_invited_people(client, db_session, wedding):
     r.companions[:] = [Companion(wedding_id=wedding.id, rsvp_id=r.id, kind=CompanionKind.adult, name="P")]
     db_session.add(Rsvp(wedding_id=wedding.id, guest_id=dec.id, attending=False))
     db_session.commit()
-    client.put(f"/api/admin/guests/{inv.id}/rsvp", headers=dev_auth(), json={"status": "invited"})
+    client.put(f"/api/w/alex-and-sam/admin/guests/{inv.id}/rsvp", headers=dev_auth(), json={"status": "invited"})
 
     # Set capacity via the content PATCH (deep-merged into event_details).
     client.patch(
-        "/api/admin/content",
+        "/api/w/alex-and-sam/admin/content",
         headers=dev_auth(),
         json={"event_details": {"capacity": {"total": 120, "by_side": {"Alex": 60, "Sam": 50}}}},
     )
 
-    s = client.get("/api/admin/summary", headers=dev_auth()).json()
+    s = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()
     assert s["capacity"] == {"total": 120, "by_side": {"Alex": 60, "Sam": 50}}
     assert s["head_count"] == 2  # confirmed (attending primary + 1)
     assert s["invited_people"] == 3  # the invited guest's expected size; declined's 9 excluded
@@ -638,11 +691,11 @@ def test_summary_capacity_ignores_garbage(client, db_session, wedding):
     """A malformed capacity blob (non-numeric / negative / wrong type) degrades to
     unset rather than 500-ing the summary."""
     client.patch(
-        "/api/admin/content",
+        "/api/w/alex-and-sam/admin/content",
         headers=dev_auth(),
         json={"event_details": {"capacity": {"total": "lots", "by_side": {"Alex": -5, "": 10}}}},
     )
-    s = client.get("/api/admin/summary", headers=dev_auth()).json()
+    s = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()
     assert s["capacity"] == {"total": None, "by_side": {}}
 
 
@@ -661,7 +714,7 @@ def test_summary_pivot(client, db_session, wedding):
     db_session.add(Rsvp(wedding_id=wedding.id, guest_id=g2.id, attending=True))
     db_session.commit()
 
-    body = client.get("/api/admin/summary/pivot?by=side&then=batch", headers=dev_auth()).json()
+    body = client.get("/api/w/alex-and-sam/admin/summary/pivot?by=side&then=batch", headers=dev_auth()).json()
     assert body["by"] == "side" and body["then"] == "batch"
     # status + side + batch are offered (3 statuses present; everyone is the same tier;
     # relationship/group unset → those are hidden).
@@ -674,22 +727,22 @@ def test_summary_pivot(client, db_session, wedding):
     assert groups["Sam"]["pending"] == 1
 
     # An invalid `by` falls back to "side"; a `then` equal to `by` drops to no stack.
-    fb = client.get("/api/admin/summary/pivot?by=group&then=side", headers=dev_auth()).json()
+    fb = client.get("/api/w/alex-and-sam/admin/summary/pivot?by=group&then=side", headers=dev_auth()).json()
     assert fb["by"] == "side" and fb["then"] is None
 
     # `then=status` is the default stack — children are the funnel-ordered statuses.
-    st = client.get("/api/admin/summary/pivot?by=side&then=status", headers=dev_auth()).json()
+    st = client.get("/api/w/alex-and-sam/admin/summary/pivot?by=side&then=status", headers=dev_auth()).json()
     alex_st = next(r for r in st["groups"] if r["label"] == "Alex")
     assert [c["label"] for c in alex_st["children"]] == ["Attending", "Invited"]
 
     # The `side` filter scopes the data but leaves the dimension menu (full list) intact.
-    alex_only = client.get("/api/admin/summary/pivot?by=side&side=Alex", headers=dev_auth()).json()
+    alex_only = client.get("/api/w/alex-and-sam/admin/summary/pivot?by=side&side=Alex", headers=dev_auth()).json()
     assert "side" in alex_only["available_dims"]
     assert [r["label"] for r in alex_only["groups"]] == ["Alex"]
     assert alex_only["total"]["invitations"] == 2
 
     # The `status` filter (Confirmed tab) keeps only attending parties; people = heads.
-    conf = client.get("/api/admin/summary/pivot?by=side&then=&status=attending", headers=dev_auth()).json()
+    conf = client.get("/api/w/alex-and-sam/admin/summary/pivot?by=side&then=&status=attending", headers=dev_auth()).json()
     assert conf["total"]["invitations"] == 1 and conf["total"]["attending"] == 1
     assert conf["total"]["people"] == conf["total"]["head_count"]
 
@@ -719,11 +772,11 @@ def test_summary_timeline_and_week_windows(client, db_session, wedding):
     add_reply("t-d", 22)  # older
     _add_guest(db_session, wedding, slug="t-pending", name="Pending")  # no RSVP
 
-    s = client.get("/api/admin/summary", headers=dev_auth()).json()
+    s = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()
     assert s["replies_this_week"] == 2
     assert s["replies_last_week"] == 1
 
-    tl = client.get("/api/admin/summary/timeline", headers=dev_auth()).json()
+    tl = client.get("/api/w/alex-and-sam/admin/summary/timeline", headers=dev_auth()).json()
     assert tl["total_invitations"] == 5  # 4 replied + 1 pending
     assert tl["total_replied"] == 4
     cums = [p["cumulative"] for p in tl["points"]]
@@ -734,7 +787,7 @@ def test_summary_timeline_and_week_windows(client, db_session, wedding):
 
 # --- RSVP audit trail ------------------------------------------------------
 def _find_guest(client, gid):
-    rows = client.get("/api/admin/guests", headers=dev_auth()).json()
+    rows = client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json()
     return next(row for row in rows if row["id"] == str(gid))
 
 
@@ -750,7 +803,7 @@ def test_audit_guest_reply_then_admin_override(client, db_session, wedding):
     assert row["responded_at"] and row["updated_at"]
 
     res = client.put(
-        f"/api/admin/guests/{g.id}/rsvp", json={"status": "declined"}, headers=dev_auth()
+        f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp", json={"status": "declined"}, headers=dev_auth()
     )
     assert res.status_code == 200
     body = res.json()
@@ -762,14 +815,14 @@ def test_audit_admin_create_and_bulk_source(client, db_session, wedding):
     """An RSVP first recorded by the owner is stamped source=admin; bulk too."""
     g = _add_guest(db_session, wedding, slug="aud-2", name="Aud Two")
     body = client.put(
-        f"/api/admin/guests/{g.id}/rsvp", json={"status": "attending"}, headers=dev_auth()
+        f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp", json={"status": "attending"}, headers=dev_auth()
     ).json()
     assert body["first_source"] == "admin" and body["last_source"] == "admin"
     assert body["last_actor"] == ADMIN_EMAIL
 
     g2 = _add_guest(db_session, wedding, slug="aud-3", name="Aud Three")
     client.post(
-        "/api/admin/guests/bulk/rsvp",
+        "/api/w/alex-and-sam/admin/guests/bulk/rsvp",
         json={"ids": [str(g2.id)], "status": "attending"},
         headers=dev_auth(),
     )
@@ -779,7 +832,7 @@ def test_audit_admin_create_and_bulk_source(client, db_session, wedding):
 
 def test_responses_detail(client, db_session, wedding):
     _seed_responses(db_session, wedding)
-    rows = client.get("/api/admin/responses", headers=dev_auth()).json()
+    rows = client.get("/api/w/alex-and-sam/admin/responses", headers=dev_auth()).json()
     attending = next(r for r in rows if r["attending"])
     assert attending["guest_name"] == "Attendee One"
     assert len(attending["companions"]) == 2
@@ -813,7 +866,7 @@ def test_export_and_template_xlsx(client, db_session, wedding):
     db_session.add(Companion(wedding_id=wedding.id, rsvp_id=rsvp.id, kind=CompanionKind.child, name="Kid"))
     db_session.commit()
 
-    r = client.get("/api/admin/export.xlsx", headers=dev_auth())
+    r = client.get("/api/w/alex-and-sam/admin/export.xlsx", headers=dev_auth())
     assert r.status_code == 200 and r.headers["content-type"].startswith(_XLSX_CT)
     rows = _read_xlsx(r.content)
     assert rows[0][:4] == ["Id", "Link", "Person", "Name"]  # no Invitee column
@@ -831,7 +884,7 @@ def test_export_and_template_xlsx(client, db_session, wedding):
     bodies = [row[person_col] for row in rows[1:]]
     assert "Primary" in bodies and "Child" in bodies
 
-    t = client.get("/api/admin/template.xlsx", headers=dev_auth())
+    t = client.get("/api/w/alex-and-sam/admin/template.xlsx", headers=dev_auth())
     assert t.status_code == 200 and t.headers["content-type"].startswith(_XLSX_CT)
     trows = _read_xlsx(t.content)
     assert trows[0][:4] == ["Id", "Link", "Person", "Name"]
@@ -846,7 +899,7 @@ def test_export_xlsx_has_dropdowns(client, db_session, wedding):
 
     _add_guest(db_session, wedding, slug="dv-1", name="DV Person")
     db_session.commit()
-    r = client.get("/api/admin/export.xlsx", headers=dev_auth())
+    r = client.get("/api/w/alex-and-sam/admin/export.xlsx", headers=dev_auth())
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
     assert "Lists" in wb.sheetnames
     assert len(wb["Guests"].data_validations.dataValidation) > 0
@@ -865,7 +918,7 @@ def test_import_dry_run_then_commit(client, db_session, wedding):
         ",,Fresh Family,Child,Leo,,,,,\n"
     )
     # Dry run: previews, persists nothing.
-    dry = client.post("/api/admin/import?commit=0", headers=dev_auth(), files=_csv_upload(csv_text))
+    dry = client.post("/api/w/alex-and-sam/admin/import?commit=0", headers=dev_auth(), files=_csv_upload(csv_text))
     assert dry.status_code == 200
     body = dry.json()
     assert body["committed"] is False
@@ -873,7 +926,7 @@ def test_import_dry_run_then_commit(client, db_session, wedding):
     assert db_session.query(Guest).count() == 0
 
     # Commit: creates the new guest with normalized contacts + the child RSVP.
-    done = client.post("/api/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
+    done = client.post("/api/w/alex-and-sam/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
     assert done.status_code == 200 and done.json()["committed"] is True
     g = db_session.query(Guest).filter(Guest.name == "Fresh Family").one()
     assert g.email == "Me@example.com" and g.phone == "+6591234567"
@@ -893,11 +946,11 @@ def test_import_expected_party_size(client, db_session, wedding):
         ",Planned Party,Primary,Planned Party,Planned Party,plus_family,5\n"
         ",Too Big,Primary,Too Big,Too Big,solo,999\n"
     )
-    dry = client.post("/api/admin/import?commit=0", headers=dev_auth(), files=_csv_upload(csv_text))
+    dry = client.post("/api/w/alex-and-sam/admin/import?commit=0", headers=dev_auth(), files=_csv_upload(csv_text))
     assert dry.status_code == 200
     assert dry.json()["errors"] == 1  # the 999 row
 
-    client.post("/api/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
+    client.post("/api/w/alex-and-sam/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
     g = db_session.query(Guest).filter(Guest.name == "Planned Party").one()
     assert g.expected_party_size == 5
     # The invalid row was skipped, so no "Too Big" guest exists.
@@ -906,7 +959,7 @@ def test_import_expected_party_size(client, db_session, wedding):
 
 def test_create_guest_stores_greeting_name(client, wedding):
     r = client.post(
-        "/api/admin/guests",
+        "/api/w/alex-and-sam/admin/guests",
         headers=dev_auth(),
         json={"name": "John Smith", "invite_tier": "plus_one", "greeting_name": "John & Jane"},
     )
@@ -916,14 +969,14 @@ def test_create_guest_stores_greeting_name(client, wedding):
 
 def test_create_guest_requires_greeting(client, wedding):
     # Greeting is mandatory: a missing or empty greeting is a 422; the name is optional.
-    missing = client.post("/api/admin/guests", headers=dev_auth(), json={"name": "No Greet"})
+    missing = client.post("/api/w/alex-and-sam/admin/guests", headers=dev_auth(), json={"name": "No Greet"})
     assert missing.status_code == 422
     empty = client.post(
-        "/api/admin/guests", headers=dev_auth(), json={"greeting_name": ""}
+        "/api/w/alex-and-sam/admin/guests", headers=dev_auth(), json={"greeting_name": ""}
     )
     assert empty.status_code == 422
     # Name-less invite with only a greeting is valid; slug is a non-descript token.
-    ok = client.post("/api/admin/guests", headers=dev_auth(), json={"greeting_name": "John & Jane"})
+    ok = client.post("/api/w/alex-and-sam/admin/guests", headers=dev_auth(), json={"greeting_name": "John & Jane"})
     assert ok.status_code == 201
     body = ok.json()
     assert body["name"] == "" and body["greeting_name"] == "John & Jane"
@@ -933,7 +986,7 @@ def test_create_guest_requires_greeting(client, wedding):
 def test_party_members_persist_and_clamp_to_tier(client, db_session, wedding):
     # A plus_one invite keeps one adult; a stray child is dropped to the tier cap.
     r = client.post(
-        "/api/admin/guests",
+        "/api/w/alex-and-sam/admin/guests",
         headers=dev_auth(),
         json={
             "greeting_name": "Sam & Alex",
@@ -950,7 +1003,7 @@ def test_party_members_persist_and_clamp_to_tier(client, db_session, wedding):
 
     # Updating the prefill party replaces it (still clamped).
     upd = client.patch(
-        f"/api/admin/guests/{gid}",
+        f"/api/w/alex-and-sam/admin/guests/{gid}",
         headers=dev_auth(),
         json={"party_members": [{"kind": "adult", "name": "Alexandra"}]},
     )
@@ -964,7 +1017,7 @@ def test_set_attending_materializes_prefill_party_as_companions(client, db_sessi
     g.party_members = [{"kind": "adult", "name": "Robin"}, {"kind": "child", "name": "Junior"}]
     db_session.commit()
 
-    r = client.put(f"/api/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "attending"})
+    r = client.put(f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "attending"})
     assert r.status_code == 200
     comps = {c["name"]: c["kind"] for c in r.json()["companions"]}
     assert comps == {"Robin": "adult", "Junior": "child"}
@@ -980,7 +1033,7 @@ def test_set_attending_keeps_existing_party(client, db_session, wedding):
     db_session.add(rsvp)
     db_session.commit()
 
-    r = client.put(f"/api/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "attending"})
+    r = client.put(f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "attending"})
     assert r.status_code == 200
     assert [c["name"] for c in r.json()["companions"]] == ["Real"]
 
@@ -994,7 +1047,7 @@ def test_import_seeds_party_members_without_rsvp(client, db_session, wedding):
         ",Lead,Adult,Robin,,\n"
         ",Lead,Child,Junior,,\n"
     )
-    r = client.post("/api/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
+    r = client.post("/api/w/alex-and-sam/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
     assert r.status_code == 200 and r.json()["created"] == 1
     g = db_session.query(Guest).filter(Guest.greeting_name == "Lead & Co").one()
     assert g.rsvp is None  # Attending blank → no RSVP
@@ -1012,13 +1065,13 @@ def test_import_and_export_greeting_name(client, db_session, wedding):
         ",John,Primary,John,John & Jane,plus_one\n"
         ",John,Adult,Jane,ignored,\n"
     )
-    r = client.post("/api/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
+    r = client.post("/api/w/alex-and-sam/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
     assert r.status_code == 200 and r.json()["created"] == 1
     g = db_session.query(Guest).filter(Guest.name == "John").one()
     assert g.greeting_name == "John & Jane"
 
     # Export: Greeting populated on the Primary row, blank on companion rows.
-    grid = _read_xlsx(client.get("/api/admin/export.xlsx", headers=dev_auth()).content)
+    grid = _read_xlsx(client.get("/api/w/alex-and-sam/admin/export.xlsx", headers=dev_auth()).content)
     header = [str(h) for h in grid[0]]
     rows = [dict(zip(header, [("" if v is None else str(v)) for v in row])) for row in grid[1:]]
     assert "Greeting" in header
@@ -1034,7 +1087,7 @@ def test_import_updates_by_id(client, db_session, wedding):
         "Id,Invitee,Person,Name,Greeting,Email,Tier\n"
         f"{gid},Update Me,Primary,Update Me,Update Me,new@example.com,plus_one\n"
     )
-    r = client.post("/api/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
+    r = client.post("/api/w/alex-and-sam/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
     assert r.status_code == 200
     body = r.json()
     assert body["updated"] == 1 and body["created"] == 0
@@ -1062,7 +1115,7 @@ def test_import_writes_admin_answers(client, db_session, wedding):
         ",Imp Fam,Primary,Imp Fam,Imp Fam,plus_family,yes,Halal,\n"
         ',Imp Fam,Child,Lee,,,,"Vegan, Vegetarian",7\n'
     )
-    r = client.post("/api/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
+    r = client.post("/api/w/alex-and-sam/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
     assert r.status_code == 200 and r.json()["created"] == 1
     g = db_session.query(Guest).filter(Guest.name == "Imp Fam").one()
     # Primary's own dietary (party answer, companion_id None).
@@ -1085,7 +1138,7 @@ def test_import_counts_invitees_and_people(client, db_session, wedding):
         ",Child,Kid,,\n"
         ",Primary,Sam,Sam,solo\n"
     )
-    r = client.post("/api/admin/import", headers=dev_auth(), files=_csv_upload(csv_text))
+    r = client.post("/api/w/alex-and-sam/admin/import", headers=dev_auth(), files=_csv_upload(csv_text))
     assert r.status_code == 200
     body = r.json()
     assert body["committed"] is False
@@ -1108,7 +1161,7 @@ def test_import_rejects_bad_answer_value(client, db_session, wedding):
         ",Bad Fam,Primary,Bad Fam,plus_family,yes,\n"
         ",Bad Fam,Child,Kid,,,not-a-number\n"
     )
-    r = client.post("/api/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
+    r = client.post("/api/w/alex-and-sam/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
     assert r.status_code == 200
     body = r.json()
     assert body["errors"] == 1 and body["created"] == 0
@@ -1137,7 +1190,7 @@ def test_export_per_person_and_invitee_copydown(client, db_session, wedding):
     ])
     db_session.commit()
 
-    r = client.get("/api/admin/export.xlsx", headers=dev_auth())
+    r = client.get("/api/w/alex-and-sam/admin/export.xlsx", headers=dev_auth())
     grid = _read_xlsx(r.content)
     header = [str(h) for h in grid[0]]
     rows = [dict(zip(header, [("" if v is None else str(v)) for v in row])) for row in grid[1:]]
@@ -1174,7 +1227,7 @@ def test_set_guest_rsvp_attending_with_answers(client, db_session, wedding):
     db_session.commit()
 
     r = client.put(
-        f"/api/admin/guests/{g.id}/rsvp",
+        f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp",
         headers=dev_auth(),
         json={
             "status": "attending",
@@ -1196,7 +1249,7 @@ def test_set_guest_rsvp_pending_clears_rsvp(client, db_session, wedding):
     db_session.add(Rsvp(wedding_id=wedding.id, guest_id=g.id, attending=True))
     db_session.commit()
 
-    r = client.put(f"/api/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "pending"})
+    r = client.put(f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "pending"})
     assert r.status_code == 200 and r.json()["rsvp_status"] == "pending"
     db_session.expire_all()
     assert db_session.query(Rsvp).filter(Rsvp.guest_id == g.id).count() == 0
@@ -1207,11 +1260,11 @@ def test_set_guest_rsvp_invited_marks_sent_without_rsvp(client, db_session, wedd
     g = _add_guest(db_session, wedding, slug="inv-1", name="Sent")
     db_session.commit()
     # Pending by default.
-    body = client.get("/api/admin/guests", headers=dev_auth()).json()
+    body = client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json()
     me = next(x for x in body if x["slug"] == "inv-1")
     assert me["rsvp_status"] == "pending" and me["invite_sent"] is False
 
-    r = client.put(f"/api/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "invited"})
+    r = client.put(f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "invited"})
     assert r.status_code == 200
     assert r.json()["rsvp_status"] == "invited" and r.json()["invite_sent"] is True
     db_session.expire_all()
@@ -1219,7 +1272,7 @@ def test_set_guest_rsvp_invited_marks_sent_without_rsvp(client, db_session, wedd
     assert db_session.query(Rsvp).filter(Rsvp.guest_id == g.id).count() == 0
 
     # Back to pending clears the sent flag.
-    r2 = client.put(f"/api/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "pending"})
+    r2 = client.put(f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp", headers=dev_auth(), json={"status": "pending"})
     assert r2.json()["rsvp_status"] == "pending" and r2.json()["invite_sent"] is False
 
 
@@ -1228,12 +1281,12 @@ def test_bulk_set_invited(client, db_session, wedding):
     b = _add_guest(db_session, wedding, slug="bi-2", name="Ben")
     db_session.commit()
     r = client.post(
-        "/api/admin/guests/bulk/rsvp",
+        "/api/w/alex-and-sam/admin/guests/bulk/rsvp",
         headers=dev_auth(),
         json={"ids": [str(a.id), str(b.id)], "status": "invited"},
     )
     assert r.status_code == 200 and r.json()["count"] == 2
-    rows = {x["slug"]: x for x in client.get("/api/admin/guests", headers=dev_auth()).json()}
+    rows = {x["slug"]: x for x in client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json()}
     assert rows["bi-1"]["rsvp_status"] == "invited" and rows["bi-2"]["rsvp_status"] == "invited"
 
 
@@ -1243,9 +1296,9 @@ def test_summary_counts_invited_separately(client, db_session, wedding):
     inv = _add_guest(db_session, wedding, slug="su-inv", name="I")
     _add_guest(db_session, wedding, slug="su-pen", name="P")  # pending
     db_session.commit()
-    client.put(f"/api/admin/guests/{inv.id}/rsvp", headers=dev_auth(), json={"status": "invited"})
+    client.put(f"/api/w/alex-and-sam/admin/guests/{inv.id}/rsvp", headers=dev_auth(), json={"status": "invited"})
 
-    s = client.get("/api/admin/summary", headers=dev_auth()).json()
+    s = client.get("/api/w/alex-and-sam/admin/summary", headers=dev_auth()).json()
     assert s["total_guests"] == 3
     assert s["attending"] == 1 and s["invited"] == 1 and s["pending"] == 1
     assert s["declined"] == 0
@@ -1267,7 +1320,7 @@ def test_set_guest_rsvp_sets_full_party_with_companion_answers(client, db_sessio
     db_session.commit()
 
     r = client.put(
-        f"/api/admin/guests/{g.id}/rsvp",
+        f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp",
         headers=dev_auth(),
         json={
             "status": "attending",
@@ -1296,7 +1349,7 @@ def test_set_guest_rsvp_companions_rejected_over_tier(client, db_session, weddin
     g = _add_guest(db_session, wedding, slug="fp-2", name="Solo", tier=InviteTier.solo)
     db_session.commit()
     r = client.put(
-        f"/api/admin/guests/{g.id}/rsvp",
+        f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp",
         headers=dev_auth(),
         json={"status": "attending", "companions": [{"kind": "adult", "name": "Nope", "answers": []}]},
     )
@@ -1314,7 +1367,7 @@ def test_set_guest_rsvp_rejects_child_only_question(client, db_session, wedding)
     g = _add_guest(db_session, wedding, slug="rs-3", name="Adam")
     db_session.commit()
     r = client.put(
-        f"/api/admin/guests/{g.id}/rsvp",
+        f"/api/w/alex-and-sam/admin/guests/{g.id}/rsvp",
         headers=dev_auth(),
         json={"status": "attending", "answers": [{"question_id": str(age_q.id), "value": {"number": 9}}]},
     )
@@ -1333,12 +1386,12 @@ def test_bulk_set_rsvp_status(client, db_session, wedding):
     db_session.commit()
 
     r = client.post(
-        "/api/admin/guests/bulk/rsvp",
+        "/api/w/alex-and-sam/admin/guests/bulk/rsvp",
         headers=dev_auth(),
         json={"ids": [str(a.id), str(b.id)], "status": "declined"},
     )
     assert r.status_code == 200 and r.json()["count"] == 2
-    rows = {row["name"]: row for row in client.get("/api/admin/guests", headers=dev_auth()).json()}
+    rows = {row["name"]: row for row in client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json()}
     assert rows["Aned"]["rsvp_status"] == "declined"
     assert rows["Bned"]["rsvp_status"] == "declined" and rows["Bned"]["party_size"] == 0
 
@@ -1348,7 +1401,7 @@ def test_bulk_set_rsvp_pending_clears(client, db_session, wedding):
     db_session.add(Rsvp(wedding_id=wedding.id, guest_id=g.id, attending=True))
     db_session.commit()
     r = client.post(
-        "/api/admin/guests/bulk/rsvp",
+        "/api/w/alex-and-sam/admin/guests/bulk/rsvp",
         headers=dev_auth(),
         json={"ids": [str(g.id)], "status": "pending"},
     )
@@ -1362,12 +1415,12 @@ def test_bulk_delete_guests(client, db_session, wedding):
     b = _add_guest(db_session, wedding, slug="bd-2", name="Del Two")
     keep = _add_guest(db_session, wedding, slug="bd-3", name="Keep Me")
     r = client.post(
-        "/api/admin/guests/bulk/delete",
+        "/api/w/alex-and-sam/admin/guests/bulk/delete",
         headers=dev_auth(),
         json={"ids": [str(a.id), str(b.id)]},
     )
     assert r.status_code == 200 and r.json()["count"] == 2
-    names = [row["name"] for row in client.get("/api/admin/guests", headers=dev_auth()).json()]
+    names = [row["name"] for row in client.get("/api/w/alex-and-sam/admin/guests", headers=dev_auth()).json()]
     assert names == ["Keep Me"]
     assert db_session.query(Guest).filter(Guest.id == keep.id).count() == 1
 
@@ -1375,20 +1428,21 @@ def test_bulk_delete_guests(client, db_session, wedding):
 def test_bulk_actions_are_tenant_scoped(make_client, db_session):
     """Foreign ids are silently excluded (count = only the owned ones), so a bulk
     call can't reach another wedding's guests."""
-    a = Wedding(slug="wed-a", couple_names="A", status="active", owner_id="dev",
+    a = Wedding(slug="wed-a", couple_names="A", status="active", published=True,
                 event_details={}, content={})
-    b = Wedding(slug="wed-b", couple_names="B", status="active", owner_id="other",
+    b = Wedding(slug="wed-b", couple_names="B", status="active", published=True,
                 event_details={}, content={})
     db_session.add_all([a, b])
     db_session.commit()
+    make_member(db_session, a, "alice@example.com", role="owner")
     ga = _add_guest(db_session, a, slug="ga", name="Guest A")
     gb = _add_guest(db_session, b, slug="gb", name="Guest B")
-    client = make_client()  # dev owner → wedding A
+    client = make_client()
 
     # Bulk delete a mix: only A's guest is removed; B's is untouched.
     r = client.post(
-        "/api/admin/guests/bulk/delete",
-        headers=dev_auth(),
+        "/api/w/wed-a/admin/guests/bulk/delete",
+        headers=dev_auth_as("alice@example.com"),
         json={"ids": [str(ga.id), str(gb.id)]},
     )
     assert r.status_code == 200 and r.json()["count"] == 1
@@ -1399,7 +1453,7 @@ def test_bulk_actions_are_tenant_scoped(make_client, db_session):
 def test_bulk_rsvp_rejects_bad_status(client, db_session, wedding):
     g = _add_guest(db_session, wedding, slug="bb-1", name="Bad Status")
     r = client.post(
-        "/api/admin/guests/bulk/rsvp",
+        "/api/w/alex-and-sam/admin/guests/bulk/rsvp",
         headers=dev_auth(),
         json={"ids": [str(g.id)], "status": "maybe"},
     )
@@ -1412,7 +1466,7 @@ def test_import_reports_over_tier(client, db_session, wedding):
         "Primary,Solo Sam,Solo Sam,solo,yes\n"
         "Adult,Plus One,,,\n"  # solo can't bring an adult
     )
-    r = client.post("/api/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
+    r = client.post("/api/w/alex-and-sam/admin/import?commit=1", headers=dev_auth(), files=_csv_upload(csv_text))
     assert r.status_code == 200
     body = r.json()
     assert body["errors"] == 1 and body["created"] == 0

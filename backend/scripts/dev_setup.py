@@ -16,7 +16,8 @@ import sys
 
 from app.config import get_settings
 from app.db import Base, SessionLocal, engine
-from app.models import Guest, InviteTier
+from app.models import Guest, InviteTier, PlatformAdmin, Profile
+from app.wedding_factory import ensure_owner_membership
 from scripts.seed_wedding import seed
 
 # Stable, friendly demo slugs (one per tier) so you can bookmark them.
@@ -53,6 +54,16 @@ def main() -> None:
                 db.add(Guest(wedding_id=wedding.id, slug=slug, name=name,
                              greeting_name=greeting, party_members=party,
                              invite_tier=tier, invited=True, seed_meta={"demo": True}))
+
+        # Local identity plumbing: the bare dev token authenticates as sub "dev".
+        # Give it a profile, platform-admin powers, and owner membership on the
+        # template wedding so /dashboard and /{slug}/admin work out of the box.
+        dev_email = (settings.admin_email_list[0] if settings.admin_email_list else "dev@local")
+        if db.get(Profile, "dev") is None:
+            db.add(Profile(user_id="dev", email=dev_email, display_name="Local dev"))
+        if db.get(PlatformAdmin, "dev") is None:
+            db.add(PlatformAdmin(user_id="dev", granted_by="bootstrap"))
+        ensure_owner_membership(db, wedding, "dev", dev_email)
         db.commit()
     finally:
         db.close()

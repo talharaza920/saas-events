@@ -66,7 +66,7 @@ def wedding(db_session):
     w = Wedding(
         slug="alex-and-sam",
         couple_names="Alex & Sam",
-        status="active",
+        status="active", published=True,
         event_details={"venue": "The Garden Hall"},
         content={},
         theme_tokens=None,
@@ -140,7 +140,7 @@ def test_wall_hides_unapproved_messages(client, db_session, wedding):
 
 def test_wishes_scoped_to_tenant(client, db_session, wedding):
     """A wish on another wedding never appears on this wedding's wall."""
-    other = Wedding(slug="other", couple_names="A & B", status="active", event_details={}, content={})
+    other = Wedding(slug="other", couple_names="A & B", status="active", published=True, event_details={}, content={})
     db_session.add(other)
     db_session.commit()
     og = _add_guest(db_session, other, slug="other-g", name="Outsider")
@@ -166,13 +166,13 @@ def test_wish_rejects_empty_and_overlong(client, db_session, wedding):
 
 # --- Owner side: moderation -------------------------------------------------
 def test_admin_wishes_requires_auth(client, wedding):
-    assert client.get("/api/admin/wishes").status_code == 401
+    assert client.get("/api/w/alex-and-sam/admin/wishes").status_code == 401
 
 
 def test_admin_sees_hidden_and_records_guest(client, db_session, wedding):
     _add_guest(db_session, wedding, slug="g1", name="Riley Khan")
     client.post("/api/i/g1/wishes", json={"name": "Riley", "message": "hi"})
-    r = client.get("/api/admin/wishes", headers=dev_auth())
+    r = client.get("/api/w/alex-and-sam/admin/wishes", headers=dev_auth())
     assert r.status_code == 200
     rows = r.json()
     assert len(rows) == 1
@@ -184,28 +184,28 @@ def test_admin_sees_hidden_and_records_guest(client, db_session, wedding):
 def test_admin_can_approve_then_hide_and_restore(client, db_session, wedding):
     _add_guest(db_session, wedding, slug="g1", name="Riley Khan")
     client.post("/api/i/g1/wishes", json={"name": "Riley", "message": "hi"})
-    wid = client.get("/api/admin/wishes", headers=dev_auth()).json()[0]["id"]
+    wid = client.get("/api/w/alex-and-sam/admin/wishes", headers=dev_auth()).json()[0]["id"]
     # Pending on arrival — not on the wall until the owner approves.
     assert client.get("/api/i/g1/wishes").json() == []
 
-    approve = client.patch(f"/api/admin/wishes/{wid}", json={"approved": True}, headers=dev_auth())
+    approve = client.patch(f"/api/w/alex-and-sam/admin/wishes/{wid}", json={"approved": True}, headers=dev_auth())
     assert approve.status_code == 200 and approve.json()["approved"] is True
     assert len(client.get("/api/i/g1/wishes").json()) == 1
 
     # Hidden again removes it from the public wall without deleting...
-    client.patch(f"/api/admin/wishes/{wid}", json={"approved": False}, headers=dev_auth())
+    client.patch(f"/api/w/alex-and-sam/admin/wishes/{wid}", json={"approved": False}, headers=dev_auth())
     assert client.get("/api/i/g1/wishes").json() == []
     # ...and it's restorable.
-    client.patch(f"/api/admin/wishes/{wid}", json={"approved": True}, headers=dev_auth())
+    client.patch(f"/api/w/alex-and-sam/admin/wishes/{wid}", json={"approved": True}, headers=dev_auth())
     assert len(client.get("/api/i/g1/wishes").json()) == 1
 
 
 def test_admin_can_delete_wish(client, db_session, wedding):
     _add_guest(db_session, wedding, slug="g1", name="Riley Khan")
     client.post("/api/i/g1/wishes", json={"name": "Riley", "message": "hi"})
-    wid = client.get("/api/admin/wishes", headers=dev_auth()).json()[0]["id"]
-    assert client.delete(f"/api/admin/wishes/{wid}", headers=dev_auth()).status_code == 204
-    assert client.get("/api/admin/wishes", headers=dev_auth()).json() == []
+    wid = client.get("/api/w/alex-and-sam/admin/wishes", headers=dev_auth()).json()[0]["id"]
+    assert client.delete(f"/api/w/alex-and-sam/admin/wishes/{wid}", headers=dev_auth()).status_code == 204
+    assert client.get("/api/w/alex-and-sam/admin/wishes", headers=dev_auth()).json() == []
 
 
 def test_admin_moderate_unknown_wish_is_404(client, wedding):
@@ -213,7 +213,7 @@ def test_admin_moderate_unknown_wish_is_404(client, wedding):
 
     assert (
         client.patch(
-            f"/api/admin/wishes/{uuid.uuid4()}", json={"approved": False}, headers=dev_auth()
+            f"/api/w/alex-and-sam/admin/wishes/{uuid.uuid4()}", json={"approved": False}, headers=dev_auth()
         ).status_code
         == 404
     )
