@@ -1,0 +1,129 @@
+"""Image storage for admin uploads — one abstraction, two backends.
+
+  • LOCAL DEV: write the file under `backend/uploads/<wedding_slug>/<uuid>.<ext>`
+    and return a URL served by the FastAPI `/media` static mount (see main.py).
+  • PRODUCTION: upload to a public Supabase Storage bucket and return its public
+    URL. Selected automatically when Supabase URL + service key are configured
+    (`settings.use_supabase_storage`).
+
+Either way the caller (the admin upload endpoint) gets back a plain URL string,
+which is stored verbatim as a story beat's `image`. The invite renders it with
+`next/image` — see frontend/next.config.ts `remotePatterns`. Multi-tenant:
+uploads are namespaced by wedding slug.
+"""
+from __future__ import annotations
+
+import io
+import uuid
+from pathlib import Path
+
+from app.config import Settings
+
+# backend/uploads (repo-relative, gitignored). Served at /media in dev.
+UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
+
+# Accepted image types → canonical extension.
+ALLOWED_CONTENT_TYPES: dict[str, str] = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+}
+_PIL_FORMAT = {"png": "PNG", "jpg": "JPEG", "webp": "WEBP"}
+
+# Accept generous originals (phone photos / comic exports run large) — we shrink
+# them server-side before storing, so the cap is just a sanity guard, not the
+# size that lands in storage.
+MAX_BYTES = 15 * 1024 * 1024  # 15 MB cap on the UPLOADED file.
+MAX_DIM = 1600  # longest edge after compression (matches the frontend optimizer).
+
+
+class UploadError(Exception):
+    """Raised for an invalid upload (bad type / too large). The router maps it to a 4xx."""
+
+
+def _safe_slug(wedding_slug: str) -> str:
+    """A filesystem/URL-safe namespace segment from the wedding slug."""
+    return "".join(c for c in wedding_slug if c.isalnum() or c in ("-", "_")) or "wedding"
+
+
+def validate(content_type: str | None, size: int) -> str:
+    """Validate type + size; return the canonical file extension or raise."""
+    ext = ALLOWED_CONTENT_TYPES.get((content_type or "").lower())
+    if ext is None:
+        raise UploadError("Unsupported image type (use PNG, JPG or WebP)")
+    if size > MAX_BYTES:
+        raise UploadError("Image is too large (max 15 MB)")
+    if size == 0:
+        raise UploadError("Empty file")
+    return ext
+
+
+def compress_image(data: bytes, ext: str) -> bytes:
+    """Downscale to <= MAX_DIM on the longest edge and re-encode, so even a large
+    original lands small in storage. Best-effort: if the bytes aren't a decodable
+    image (or Pillow is unavailable), return them unchanged — `validate` already
+    bounded the size."""
+    try:
+        from PIL import Image, ImageOps
+
+        fmt = _PIL_FORMAT.get(ext, "PNG")
+        with Image.open(io.BytesIO(data)) as im:
+            im = ImageOps.exif_transpose(im)  # honour phone-photo rotation
+            if fmt == "JPEG" and im.mode in ("RGBA", "P", "LA"):
+                im = im.convert("RGB")  # JPEG has no alpha
+            im.thumbnail((MAX_DIM, MAX_DIM))  # no-op if already smaller; keeps ratio
+            buf = io.BytesIO()
+            save_kwargs: dict = {"optimize": True}
+            if fmt in ("JPEG", "WEBP"):
+                save_kwargs["quality"] = 82
+            im.save(buf, format=fmt, **save_kwargs)
+            out = buf.getvalue()
+        # Only keep the re-encode if it actually helped (PNG optimize can grow tiny
+        # images); otherwise store the original.
+        return out if out and len(out) <= len(data) else data
+    except Exception:
+        return data
+
+
+def save_image(settings: Settings, wedding_slug: str, data: bytes, content_type: str | None) -> str:
+    """Validate, compress, then persist an uploaded image; return its public URL."""
+    ext = validate(content_type, len(data))
+    data = compress_image(data, ext)
+    namespace = _safe_slug(wedding_slug)
+    filename = f"{uuid.uuid4().hex}.{ext}"
+
+    if settings.use_supabase_storage:
+        return _save_supabase(settings, namespace, filename, data, content_type or "image/png")
+    return _save_local(settings, namespace, filename, data)
+
+
+def _save_local(settings: Settings, namespace: str, filename: str, data: bytes) -> str:
+    dest_dir = UPLOAD_DIR / namespace
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    (dest_dir / filename).write_bytes(data)
+    base = settings.media_base_url.rstrip("/")
+    return f"{base}/media/{namespace}/{filename}"
+
+
+def _save_supabase(
+    settings: Settings, namespace: str, filename: str, data: bytes, content_type: str
+) -> str:
+    """Upload to a public Supabase Storage bucket via its REST API (lazy import so
+    local dev never needs the SDK). Returns the public URL."""
+    import httpx  # already a FastAPI/Supabase dependency
+
+    bucket = settings.supabase_storage_bucket
+    object_path = f"{namespace}/{filename}"
+    base = settings.supabase_url.rstrip("/")
+    upload_url = f"{base}/storage/v1/object/{bucket}/{object_path}"
+    headers = {
+        "Authorization": f"Bearer {settings.supabase_service_key}",
+        "apikey": settings.supabase_service_key,
+        "Content-Type": content_type,
+        "x-upsert": "true",
+    }
+    resp = httpx.post(upload_url, content=data, headers=headers, timeout=30.0)
+    if resp.status_code not in (200, 201):
+        raise UploadError(f"Storage upload failed ({resp.status_code})")
+    return f"{base}/storage/v1/object/public/{bucket}/{object_path}"

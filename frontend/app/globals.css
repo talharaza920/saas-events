@@ -1,0 +1,16 @@
+/* Minimal global reset. Colors, fonts, and surfaces come from the MUI theme
+   (theme/buildTheme.ts) + CssBaseline — do not set palette here. */
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Env / secrets
+.env
+.env.local
+.env*.local
+*.local
+
+# Next.js / build
+frontend/.next/
+frontend/out/
+frontend/build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Generated API contract (regenerated from FastAPI; the committed artifact is
+# frontend/types/api.ts).
+backend/openapi.json
+
+# Local dev SQLite database(s).
+*.db
+backend/dev.db
+
+# Admin image uploads (local storage backend; prod uses Supabase Storage).
+backend/uploads/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Private source material — real guest contacts + private proposal photos.
+# Kept local only; the curated, less-sensitive extraction lives in docs/.
+0_REFERENCE/
+
+# Misc
+*.tmp
+
+# Throwaway QA screenshots (manual browser-testing artifacts)
+qa-shots/

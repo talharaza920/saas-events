@@ -1,0 +1,95 @@
+"""Application settings, loaded from environment / .env (never hardcode secrets).
+
+Local vs production is a single switch — `DATABASE_URL`:
+  • Production: the Supabase pooler URL (in `.env`).
+  • Local dev:  `sqlite:///./dev.db` (in `.env.local`).
+
+`.env.local` is gitignored and OVERRIDES `.env`, so the recommended workflow is:
+create `backend/.env.local` (from `.env.local.example`) to run against local
+SQLite, and delete it to run against production — without ever editing the
+secret-bearing `.env`. A real `DATABASE_URL` environment variable still beats
+both files (handy for one-off runs).
+"""
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    # Later files win: `.env.local` overrides `.env`. Missing files are ignored.
+    model_config = SettingsConfigDict(
+        env_file=(".env", ".env.local"), env_file_encoding="utf-8", extra="ignore"
+    )
+
+    # Core
+    app_name: str = "saas-events — Wedding RSVP API"
+    environment: str = "development"
+
+    # Database. Default is local SQLite so a fresh clone runs with zero config;
+    # production sets the Supabase `postgresql+psycopg://...` URL in `.env`.
+    database_url: str = "sqlite:///./dev.db"
+
+    # Comma-separated origins allowed to call the API (the Next.js frontend).
+    cors_origins: str = "http://localhost:3000"
+
+    # Supabase auth (admin/owner sign-in). We validate the admin's access token
+    # by introspection — calling Supabase's `/auth/v1/user` — so NO JWT secret is
+    # needed; both values below are public (the publishable/anon key is the
+    # `apikey` header). Works whether the project signs tokens symmetrically or
+    # with the newer asymmetric keys.
+    supabase_url: str = ""
+    supabase_publishable_key: str = ""
+
+    # Admin allowlist — only these emails may use the owner dashboard. The email
+    # returned by Supabase for the token must be in this list (comma-separated).
+    # In the future two-tier model (PLAN.md) this becomes the PLATFORM-admin list
+    # (per-wedding access moves to a `wedding_members` table) — keep it small.
+    admin_emails: str = ""
+
+    # LOCAL-DEV ONLY: a static bearer token that stands in for a Supabase login
+    # so /admin works on SQLite without Supabase Auth. Empty in production (then
+    # only a real Supabase session is accepted). Set it in .env.local.
+    dev_admin_token: str = ""
+
+    # --- Image uploads (admin) -------------------------------------------------
+    # Story/iconography images uploaded from /admin. Two backends behind
+    # app/storage.py: locally we write to backend/uploads/ and serve via the
+    # FastAPI `/media` mount (URLs prefixed with `media_base_url`); in production
+    # we push to a public Supabase Storage bucket and return its public URL.
+    # `media_base_url` is where this API is reachable for static media (no
+    # trailing slash). The Supabase service key is only needed for prod uploads.
+    media_base_url: str = "http://localhost:8000"
+    supabase_storage_bucket: str = "invite-media"
+    supabase_service_key: str = ""
+
+    @property
+    def use_supabase_storage(self) -> bool:
+        """Prod path: push uploads to Supabase Storage (needs URL + service key)."""
+        return bool(self.supabase_url and self.supabase_service_key)
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def admin_email_list(self) -> list[str]:
+        return [e.strip().lower() for e in self.admin_emails.split(",") if e.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() in ("production", "prod")
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_url.startswith("sqlite")
+
+    @property
+    def db_backend(self) -> str:
+        """Human label for the active DB — surfaced at /health and on startup so
+        it's obvious whether you're pointed at local SQLite or production."""
+        return "sqlite" if self.is_sqlite else "postgres"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
