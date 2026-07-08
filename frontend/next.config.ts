@@ -15,13 +15,13 @@ const isDev = process.env.NODE_ENV !== "production";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const supabaseHost = supabaseUrl ? new URL(supabaseUrl).hostname : "";
 
-// Content-Security-Policy. MUI/Emotion needs style-src 'unsafe-inline'; Next's
-// hydration runtime needs script-src 'unsafe-inline' (and 'unsafe-eval' in dev).
-// connect-src covers the FastAPI backend + Supabase (auth/storage).
+// Content-Security-Policy (PRODUCTION ONLY, see headers()). MUI/Emotion needs
+// style-src 'unsafe-inline'; Next's hydration runtime needs script-src
+// 'unsafe-inline'. connect-src covers the FastAPI backend + Supabase.
 const connectSrc = ["'self'", apiUrl, supabaseUrl].filter(Boolean).join(" ");
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob:${supabaseUrl ? ` ${supabaseUrl}` : ""}${apiIsLocal ? ` ${apiUrl}` : ""}`,
   "font-src 'self' data:",
@@ -42,7 +42,9 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: [
-          { key: "Content-Security-Policy", value: csp },
+          // CSP only in production: in dev it fights Next's overlay/HMR and
+          // browser devtools/extensions. nosniff/referrer/frame stay on always.
+          ...(isDev ? [] : [{ key: "Content-Security-Policy", value: csp }]),
           { key: "X-Content-Type-Options", value: "nosniff" },
           // Guest slugs are credentials — keep them out of referrers.
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
