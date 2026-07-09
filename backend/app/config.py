@@ -61,6 +61,17 @@ class Settings(BaseSettings):
     rate_limit_guest_reads_per_minute: int = 120
     rate_limit_guest_writes_per_minute: int = 30
 
+    # --- Observability (app/obs.py) ---------------------------------------------
+    # Error tracking is on only when a Sentry DSN is provided; LOG_LEVEL tunes
+    # stdlib logging (INFO default).
+    sentry_dsn: str = ""
+    log_level: str = "INFO"
+
+    # --- Internal cron endpoints (app/routers/internal.py) ----------------------
+    # Shared secret for scheduler-driven routes (Vercel cron sends
+    # `Authorization: Bearer $CRON_SECRET`). Empty = the routes 404.
+    cron_secret: str = ""
+
     # LOCAL-DEV ONLY: a static bearer token that stands in for a Supabase login
     # so /admin works on SQLite without Supabase Auth. Empty in production (then
     # only a real Supabase session is accepted). Set it in .env.local.

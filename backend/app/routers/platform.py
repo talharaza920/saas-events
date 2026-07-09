@@ -34,6 +34,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.emailer import send_email
 from app.entitlements import effective_entitlements
+from app.purge import purge_archived_weddings
 from app.models import (
     AuditLog,
     Guest,
@@ -90,41 +91,105 @@ def _owner_email(db: Session, wedding: Wedding) -> str | None:
     return row.invited_email
 
 
-def _platform_wedding(db: Session, wedding: Wedding) -> PlatformWedding:
-    member_count = db.execute(
-        select(func.count()).select_from(WeddingMember).where(
-            WeddingMember.wedding_id == wedding.id,
-            WeddingMember.status == MemberStatus.active,
-        )
-    ).scalar_one()
-    guest_count = db.execute(
-        select(func.count()).select_from(Guest).where(Guest.wedding_id == wedding.id)
-    ).scalar_one()
-    wp = db.get(WeddingPlan, wedding.id)
-    plan_name = wp.plan.name if wp is not None and wp.plan is not None else None
-    return PlatformWedding(
-        id=wedding.id,
-        slug=wedding.slug,
-        couple_names=wedding.couple_names,
-        status=wedding.status,
-        published=wedding.published,
-        owner_email=_owner_email(db, wedding),
-        member_count=member_count,
-        guest_count=guest_count,
-        plan_name=plan_name,
-        created_at=wedding.created_at,
+def _platform_wedding_cards(db: Session, weddings: list[Wedding]) -> list[PlatformWedding]:
+    """Build the console's wedding cards with a FIXED number of queries (grouped
+    counts + batched lookups), however many weddings are on the page — the
+    per-wedding version was 4-5 queries each (review backlog #8)."""
+    if not weddings:
+        return []
+    ids = [w.id for w in weddings]
+    member_counts = dict(
+        db.execute(
+            select(WeddingMember.wedding_id, func.count())
+            .where(
+                WeddingMember.wedding_id.in_(ids),
+                WeddingMember.status == MemberStatus.active,
+            )
+            .group_by(WeddingMember.wedding_id)
+        ).all()
     )
+    guest_counts = dict(
+        db.execute(
+            select(Guest.wedding_id, func.count())
+            .where(Guest.wedding_id.in_(ids))
+            .group_by(Guest.wedding_id)
+        ).all()
+    )
+    plan_names = dict(
+        db.execute(
+            select(WeddingPlan.wedding_id, Plan.name)
+            .join(Plan, WeddingPlan.plan_id == Plan.id)
+            .where(WeddingPlan.wedding_id.in_(ids))
+        ).all()
+    )
+    # Earliest active owner per wedding (rows come back ordered by created_at,
+    # so the first seen per wedding wins — same pick as _owner_email).
+    owner_rows = (
+        db.execute(
+            select(WeddingMember)
+            .where(
+                WeddingMember.wedding_id.in_(ids),
+                WeddingMember.role == MemberRole.owner,
+                WeddingMember.status == MemberStatus.active,
+            )
+            .order_by(WeddingMember.created_at)
+        )
+        .scalars()
+        .all()
+    )
+    owner_by_wedding: dict = {}
+    for m in owner_rows:
+        owner_by_wedding.setdefault(m.wedding_id, m)
+    owner_user_ids = [m.user_id for m in owner_by_wedding.values() if m.user_id]
+    # user_id → profile email; a key that EXISTS mirrors "profile found" in
+    # _owner_email (its email wins even when None, never the invited_email).
+    profile_emails: dict = {}
+    if owner_user_ids:
+        profile_emails = dict(
+            db.execute(
+                select(Profile.user_id, Profile.email).where(Profile.user_id.in_(owner_user_ids))
+            ).all()
+        )
+
+    def _email(m: WeddingMember | None) -> str | None:
+        if m is None:
+            return None
+        if m.user_id and m.user_id in profile_emails:
+            return profile_emails[m.user_id]
+        return m.invited_email
+
+    return [
+        PlatformWedding(
+            id=w.id,
+            slug=w.slug,
+            couple_names=w.couple_names,
+            status=w.status,
+            published=w.published,
+            owner_email=_email(owner_by_wedding.get(w.id)),
+            member_count=member_counts.get(w.id, 0),
+            guest_count=guest_counts.get(w.id, 0),
+            plan_name=plan_names.get(w.id),
+            created_at=w.created_at,
+        )
+        for w in weddings
+    ]
+
+
+def _platform_wedding(db: Session, wedding: Wedding) -> PlatformWedding:
+    return _platform_wedding_cards(db, [wedding])[0]
 
 
 @router.get("/weddings", response_model=list[PlatformWedding])
 def list_weddings(
     status: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[PlatformWedding]:
-    stmt = select(Wedding).order_by(Wedding.created_at.desc())
+    stmt = select(Wedding).order_by(Wedding.created_at.desc()).limit(limit).offset(offset)
     if status:
         stmt = stmt.where(Wedding.status == status)
-    return [_platform_wedding(db, w) for w in db.execute(stmt).scalars()]
+    return _platform_wedding_cards(db, db.execute(stmt).scalars().all())
 
 
 def _get_wedding(db: Session, wedding_id: UUID) -> Wedding:
@@ -214,6 +279,7 @@ def reinstate_wedding(
         wedding.status = WeddingStatus.ACTIVE
     elif wedding.status == WeddingStatus.ARCHIVED:
         wedding.status = WeddingStatus.DRAFT
+        wedding.archived_at = None  # undo used — stop the purge clock
     else:
         raise HTTPException(status_code=409, detail="Nothing to reinstate")
     record(db, "wedding.reinstate", user=user, wedding=wedding)
@@ -223,22 +289,45 @@ def reinstate_wedding(
     return _platform_wedding(db, wedding)
 
 
+# --- Archived-wedding purge (REVIEW_BACKLOG P1-9) ------------------------------
+@router.post("/purge-archived")
+def purge_archived(
+    user: AuthedUser = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Manually run the archived-wedding purge (hard-deletes weddings archived
+    more than 30 days ago). The scheduled path is the cron endpoint in
+    app/routers/internal.py; this button is for the console / GDPR requests."""
+    purged = purge_archived_weddings(db, settings)
+    return {"purged": purged, "count": len(purged)}
+
+
 # --- Approval queue ----------------------------------------------------------
 @router.get("/approvals", response_model=list[ApprovalItem])
-def approval_queue(db: Session = Depends(get_db)) -> list[ApprovalItem]:
+def approval_queue(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[ApprovalItem]:
     """Pending weddings with each auto-rule's verdict, so the reviewer sees WHY
-    something queued instead of auto-approving."""
+    something queued instead of auto-approving. Rules are loaded once for the
+    page; the per-wedding trace queries (guest/wedding counts) stay per item."""
     pending = db.execute(
         select(Wedding)
         .where(Wedding.status == WeddingStatus.PENDING_APPROVAL)
         .order_by(Wedding.created_at)
+        .limit(limit)
+        .offset(offset)
     ).scalars().all()
+    cards = _platform_wedding_cards(db, pending)
+    rules = get_approval_rules(db)
     out: list[ApprovalItem] = []
-    for w in pending:
-        would, trace = evaluate_auto_approval(db, w)
+    for w, card in zip(pending, cards):
+        would, trace = evaluate_auto_approval(db, w, rules=rules)
         out.append(
             ApprovalItem(
-                wedding=_platform_wedding(db, w),
+                wedding=card,
                 rule_trace=[RuleTraceEntry(**t) for t in trace],
                 would_auto_approve=would,
             )
@@ -266,29 +355,44 @@ def put_settings_approval(
 
 # --- Users view ----------------------------------------------------------------
 @router.get("/users", response_model=list[PlatformUser])
-def list_users(db: Session = Depends(get_db)) -> list[PlatformUser]:
-    profiles = db.execute(select(Profile).order_by(Profile.created_at.desc())).scalars().all()
-    admin_ids = {a.user_id for a in db.execute(select(PlatformAdmin)).scalars()}
-    out: list[PlatformUser] = []
-    for p in profiles:
-        wedding_count = db.execute(
-            select(func.count()).select_from(WeddingMember).where(
-                WeddingMember.user_id == p.user_id,
-                WeddingMember.status == MemberStatus.active,
-            )
-        ).scalar_one()
-        out.append(
-            PlatformUser(
-                user_id=p.user_id,
-                email=p.email,
-                display_name=p.display_name,
-                disabled=p.disabled,
-                is_platform_admin=p.user_id in admin_ids,
-                wedding_count=wedding_count,
-                created_at=p.created_at,
-            )
+def list_users(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[PlatformUser]:
+    profiles = (
+        db.execute(
+            select(Profile).order_by(Profile.created_at.desc()).limit(limit).offset(offset)
         )
-    return out
+        .scalars()
+        .all()
+    )
+    admin_ids = {a.user_id for a in db.execute(select(PlatformAdmin)).scalars()}
+    # One grouped count for the whole page (was one COUNT per profile).
+    wedding_counts: dict = {}
+    if profiles:
+        wedding_counts = dict(
+            db.execute(
+                select(WeddingMember.user_id, func.count())
+                .where(
+                    WeddingMember.user_id.in_([p.user_id for p in profiles]),
+                    WeddingMember.status == MemberStatus.active,
+                )
+                .group_by(WeddingMember.user_id)
+            ).all()
+        )
+    return [
+        PlatformUser(
+            user_id=p.user_id,
+            email=p.email,
+            display_name=p.display_name,
+            disabled=p.disabled,
+            is_platform_admin=p.user_id in admin_ids,
+            wedding_count=wedding_counts.get(p.user_id, 0),
+            created_at=p.created_at,
+        )
+        for p in profiles
+    ]
 
 
 @router.post("/users/{user_id}/disable", response_model=PlatformUser)

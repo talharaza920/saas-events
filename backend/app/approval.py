@@ -69,15 +69,21 @@ def _banned_hits(wedding: Wedding, banned: list[str]) -> list[str]:
     return [w for w in banned if w and w.lower() in hay]
 
 
-def evaluate_auto_approval(db: Session, wedding: Wedding) -> tuple[bool, list[dict]]:
+def evaluate_auto_approval(
+    db: Session, wedding: Wedding, rules: dict | None = None
+) -> tuple[bool, list[dict]]:
     """(would_auto_approve, trace). The trace lists every rule with ok/detail —
     stored in the audit log and shown in the console's approval queue.
 
     Conditions (all must pass, and auto_approve must be on):
     email verified, account age ≥ N hours, ≤ N weddings per account,
     guest count at submission ≤ N, no banned-word hits.
+
+    Callers evaluating a whole page (the approvals queue) pass `rules` so the
+    settings blob is read once, not per wedding.
     """
-    rules = get_approval_rules(db)
+    if rules is None:
+        rules = get_approval_rules(db)
     trace: list[dict] = []
 
     creator: Profile | None = db.get(Profile, wedding.owner_id) if wedding.owner_id else None

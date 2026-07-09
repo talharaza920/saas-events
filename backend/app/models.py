@@ -130,6 +130,9 @@ class Wedding(Base):
     # Per-wedding admin settings (owner-editable knobs that aren't guest content),
     # e.g. {"admins_can_publish": true}. NULL = all defaults.
     settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # When the owner archived it (status="archived") — starts the 30-day undo
+    # window; the purge job hard-deletes past it. Cleared on reinstate.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     guests: Mapped[list[Guest]] = relationship(back_populates="wedding", cascade="all, delete-orphan")

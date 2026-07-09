@@ -154,10 +154,12 @@ ok(
   JSON.stringify(persisted.rsvp)?.slice(0, 80),
 );
 
-// --- 4. Landing page (no link) ----------------------------------------------
+// --- 4. Platform landing (no link) -------------------------------------------
+// Static platform copy — must NOT show any tenant's names (review backlog #5).
 await page.goto("http://localhost:3000/", { waitUntil: "networkidle0" });
 await sleep(300);
-ok("landing: renders without a guest link", await visibleHas("Alex & Sam"));
+ok("landing: static platform copy renders", await visibleHas("Ever after"));
+ok("landing: no tenant content leaks to the root", !(await visibleHas("Alex & Sam")));
 await page.screenshot({ path: `${OUT}/landing.png` });
 
 // --- 5. Post-login dashboard (dev-token auth; platform era) ------------------

@@ -139,3 +139,19 @@ for serverless: per-instance is the scope you want), but tests reuse the same
 bearer strings and client IP — an autouse conftest fixture clears both between
 tests or results bleed across files. Cache only SUCCESSES keyed by token
 hash; failures must always re-verify.
+
+## The alembic chain doesn't run on a FRESH SQLite database
+`migrations/versions/9a4e0c2acead_initial_schema.py` uses Postgres-only
+`server_default=sa.text('now()')`, so `alembic upgrade head` on a brand-new
+SQLite file fails in the very first migration. This has always been true:
+local SQLite is created by `scripts.dev_setup` (metadata `create_all`), and
+alembic is only ever run against Supabase/Postgres. Keep new migrations
+additive and dual-dialect anyway (plain `add_column` is fine), and don't burn
+time "fixing" a fresh-SQLite alembic run unless we decide to support it.
+
+## Scheduler-driven endpoints: shared-secret internal routes
+Vercel cron can't hold a Supabase session, so machine-to-machine jobs live
+under `/api/internal/*` gated by `Authorization: Bearer $CRON_SECRET`
+(constant-time compare; unset secret → neutral 404 so the surface doesn't
+exist until ops enables it). Cron only issues GETs — register GET alongside
+POST. The purge job (`app/purge.py`) is the pattern to copy.

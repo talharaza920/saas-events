@@ -13,7 +13,9 @@ export interface paths {
         };
         /**
          * Health
-         * @description Liveness probe. `db` tells you which backend is active (sqlite|postgres).
+         * @description Liveness + DB probe. `db` names the active backend (sqlite|postgres);
+         *     `db_ok` is a real SELECT 1 against it. Always HTTP 200 (serverless: a 5xx
+         *     here can recycle the instance) — monitors alert on `status: degraded`.
          */
         get: operations["health_health_get"];
         put?: never;
@@ -80,27 +82,6 @@ export interface paths {
          *     from /admin before it shows on the public wall.
          */
         post: operations["create_wish_api_i__guest_slug__wishes_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/landing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Landing
-         * @description Copy for the public "no link" landing page (someone visiting the root with
-         *     no personal link). Returns only the owner-editable `landing` block + theme.
-         */
-        get: operations["get_landing_api_landing_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -914,6 +895,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/platform/purge-archived": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge Archived
+         * @description Manually run the archived-wedding purge (hard-deletes weddings archived
+         *     more than 30 days ago). The scheduled path is the cron endpoint in
+         *     app/routers/internal.py; this button is for the console / GDPR requests.
+         */
+        post: operations["purge_archived_api_platform_purge_archived_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/approvals": {
         parameters: {
             query?: never;
@@ -924,7 +927,8 @@ export interface paths {
         /**
          * Approval Queue
          * @description Pending weddings with each auto-rule's verdict, so the reviewer sees WHY
-         *     something queued instead of auto-approving.
+         *     something queued instead of auto-approving. Rules are loaded once for the
+         *     page; the per-wedding trace queries (guest/wedding counts) stay per item.
          */
         get: operations["approval_queue_api_platform_approvals_get"];
         put?: never;
@@ -1111,6 +1115,30 @@ export interface paths {
          */
         put: operations["assign_plan_api_platform_weddings__wedding_id__plan_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/internal/cron/purge-archived": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cron Purge Archived
+         * @description Scheduled hard-delete of weddings archived past the 30-day undo window.
+         */
+        get: operations["cron_purge_archived_api_internal_cron_purge_archived_get"];
+        put?: never;
+        /**
+         * Cron Purge Archived
+         * @description Scheduled hard-delete of weddings archived past the 30-day undo window.
+         */
+        post: operations["cron_purge_archived_api_internal_cron_purge_archived_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2628,6 +2656,8 @@ export interface components {
         WeddingSettingsUpdate: {
             /** Admins Can Publish */
             admins_can_publish?: boolean | null;
+            /** Phone Region */
+            phone_region?: string | null;
         };
         /**
          * WishAdmin
@@ -2717,9 +2747,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": Record<string, never>;
                 };
             };
         };
@@ -2852,26 +2880,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_landing_api_landing_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LandingResponse"];
                 };
             };
         };
@@ -4479,6 +4487,8 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string | null;
+                limit?: number;
+                offset?: number;
             };
             header?: {
                 authorization?: string | null;
@@ -4652,9 +4662,43 @@ export interface operations {
             };
         };
     };
-    approval_queue_api_platform_approvals_get: {
+    purge_archived_api_platform_purge_archived_post: {
         parameters: {
             query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approval_queue_api_platform_approvals_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: {
                 authorization?: string | null;
             };
@@ -4751,7 +4795,10 @@ export interface operations {
     };
     list_users_api_platform_users_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
             header?: {
                 authorization?: string | null;
             };
@@ -5106,6 +5153,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeddingPlanAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cron_purge_archived_api_internal_cron_purge_archived_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cron_purge_archived_api_internal_cron_purge_archived_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
                 };
             };
             /** @description Validation Error */

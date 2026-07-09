@@ -216,7 +216,7 @@ export const adminApi = {
   submitApproval: () => req<LifecycleResult>("/submit-approval", { method: "POST" }),
   setPublished: (published: boolean) =>
     req<LifecycleResult>("/publish", { method: "POST", body: JSON.stringify({ published }) }),
-  updateWeddingSettings: (s: { admins_can_publish?: boolean }) =>
+  updateWeddingSettings: (s: { admins_can_publish?: boolean; phone_region?: string }) =>
     req<Record<string, unknown>>("/settings", { method: "PATCH", body: JSON.stringify(s) }),
   archiveWedding: () => req<LifecycleResult>("", { method: "DELETE" }),
 

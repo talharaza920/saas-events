@@ -47,33 +47,55 @@ handful of correctness edges.
 
 ## P1 — soon after launch
 
-- [ ] **5. Platform root serves an arbitrary tenant's content** — Product/
+- [x] **5. Platform root serves an arbitrary tenant's content** — Product/
   privacy — **S** — `GET /api/landing` (`tenancy.primary_wedding`) returns the
   earliest active+published wedding's landing copy: single-tenant leftover.
   Replace with a real platform landing (or static copy) once the product has a
   name.
-- [ ] **6. Phone region hardcoded to SG** — Correctness — **S–M** —
+  _Done 2026-07-09: endpoint + `primary_wedding` removed; `app/page.tsx` is a
+  static platform landing (no fetch) with /create + /dashboard CTAs; smoke test
+  asserts no tenant names leak to the root; per-wedding `/api/w/{slug}/landing`
+  unchanged._
+- [x] **6. Phone region hardcoded to SG** — Correctness — **S–M** —
   `validation.DEFAULT_REGION = "SG"`: non-SG guests typing national-format
   numbers get 422s or wrong normalization. Make it a per-wedding setting
   threaded into `normalize_phone` (already TODO'd in the code).
+  _Done 2026-07-09: `settings["phone_region"]` (owner PATCH /settings,
+  validated ISO code) → `wedding_phone_region()` threaded into guest RSVP,
+  admin guest CRUD and import; SG stays the fallback. Owner-facing UI knob
+  still owed (no settings panel exists yet; API is ready)._
 - [ ] **7. `max_storage_mb` entitlement never enforced** — Cost/abuse — **M**
   — uploads are per-file capped (15 MB) but unlimited in count. Needs
   per-wedding usage accounting: DB byte counter incremented on upload +
   occasional reconciliation against the bucket (counter alone drifts).
-- [ ] **8. Platform console N+1 + unpaginated** — Scaling — **M** —
+- [x] **8. Platform console N+1 + unpaginated** — Scaling — **M** —
   `/platform/weddings` (4 queries/wedding), `/platform/users`
   (1 count/profile), `/platform/approvals` (rules re-eval per item); all
   unbounded. Grouped-count queries + limit/offset. Fine until ~hundreds of
   tenants; do before promoting broadly.
-- [ ] **9. Archived-wedding purge job missing** — Compliance/PII — **M** — the
+  _Done 2026-07-09: `_platform_wedding_cards` batches counts/plans/owner
+  emails (fixed query count, pinned by tests); rules read once per approvals
+  page; `limit`/`offset` (default 100, max 500) on weddings/users/approvals.
+  Console UI pagination controls can come when needed._
+- [x] **9. Archived-wedding purge job missing** — Compliance/PII — **M** — the
   promised "30-day undo, then purge" has no purge: archived weddings (guest
   emails/phones) persist forever. Needs a scheduled job (Vercel cron → internal
   endpoint) + hard-delete path. Keep the audit trail (`wedding_id` already
   SET NULL). Also the seam for GDPR-style deletion requests.
-- [ ] **10. Observability** — Ops — **S–M** — `print()` logging, no error
+  _Done 2026-07-09: `weddings.archived_at` (migration `f1a2b3c4d5e6`; archive
+  sets it, reinstate clears it), `app/purge.py` (30-day window, NULL timestamp
+  never purged, audit kept + pointer nulled, best-effort media cleanup),
+  `POST /api/platform/purge-archived` + `/api/internal/cron/purge-archived`
+  (`CRON_SECRET` bearer; 404 when unset). Infra owed: the Vercel cron entry._
+- [x] **10. Observability** — Ops — **S–M** — `print()` logging, no error
   tracking, `/health` doesn't ping the DB. Sentry both apps, structured logs
   with `wedding_id`/`user_sub`, DB check in `/health`. (Sentry account = infra
   list.)
+  _Done 2026-07-09 (backend): `app/obs.py` — logging setup (`LOG_LEVEL`),
+  `log_event` logfmt helper, Sentry init behind `SENTRY_DSN` (sentry-sdk
+  pinned); prints → loggers; `/health` does SELECT 1 (`db_ok`, status
+  `degraded`, always HTTP 200). Owed: Sentry account/DSN + frontend
+  `@sentry/nextjs` (infra list)._
 
 ## P2 — hardening
 
@@ -118,7 +140,7 @@ handful of correctness edges.
   guests (200-guest default cap bounds today's responses).
 - [ ] **22. Supabase-side ban on account disable** — API refusal works today;
   a disabled user keeps a valid Supabase session (noted in code).
-- [ ] **23. `/health` DB ping** — folded into item 10.
+- [x] **23. `/health` DB ping** — folded into item 10 (done 2026-07-09).
 - [ ] **24. Local JWT verification via JWKS** — the durable follow-up to
   item 2's cache (removes the network hop entirely; ties to the project's
   signing-key config).

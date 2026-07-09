@@ -14,6 +14,7 @@ uploads are namespaced by wedding slug.
 from __future__ import annotations
 
 import io
+import logging
 import uuid
 from pathlib import Path
 
@@ -104,6 +105,52 @@ def _save_local(settings: Settings, namespace: str, filename: str, data: bytes) 
     (dest_dir / filename).write_bytes(data)
     base = settings.media_base_url.rstrip("/")
     return f"{base}/media/{namespace}/{filename}"
+
+
+def delete_wedding_media(settings: Settings, wedding_slug: str) -> None:
+    """Best-effort removal of every upload under a wedding's namespace — called by
+    the archived-wedding purge. Never raises: media cleanup must not block the DB
+    purge (an orphaned public image is a cost/PII nit, a failed purge is worse)."""
+    namespace = _safe_slug(wedding_slug)
+    try:
+        if settings.use_supabase_storage:
+            _delete_supabase_prefix(settings, namespace)
+        else:
+            import shutil
+
+            shutil.rmtree(UPLOAD_DIR / namespace, ignore_errors=True)
+    except Exception as exc:  # noqa: BLE001 — deliberately swallowed, see docstring
+        logging.getLogger("app.storage").warning("media purge failed for %s: %s", namespace, exc)
+
+
+def _delete_supabase_prefix(settings: Settings, namespace: str) -> None:
+    """List then bulk-delete every object under `namespace/` in the bucket (the
+    Storage API deletes exact object paths, not folders)."""
+    import httpx
+
+    bucket = settings.supabase_storage_bucket
+    base = settings.supabase_url.rstrip("/")
+    headers = {
+        "Authorization": f"Bearer {settings.supabase_service_key}",
+        "apikey": settings.supabase_service_key,
+    }
+    resp = httpx.post(
+        f"{base}/storage/v1/object/list/{bucket}",
+        json={"prefix": namespace, "limit": 1000},
+        headers=headers,
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    names = [item["name"] for item in resp.json() if item.get("name")]
+    if not names:
+        return
+    httpx.request(
+        "DELETE",
+        f"{base}/storage/v1/object/{bucket}",
+        json={"prefixes": [f"{namespace}/{n}" for n in names]},
+        headers=headers,
+        timeout=30.0,
+    ).raise_for_status()
 
 
 def _save_supabase(

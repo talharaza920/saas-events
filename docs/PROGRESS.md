@@ -5,7 +5,7 @@ The resumable source of truth for platform work. Phases are defined in
 that private repo, not here.
 
 _Last updated: 2026-07-09 (Phases 1–5 built & tested locally; review P0 fixes
-landed — see `REVIEW_BACKLOG.md`)._
+and P1 items 5/6/8/9/10 landed — see `REVIEW_BACKLOG.md`)._
 
 ## Where things stand (one paragraph)
 
@@ -135,13 +135,26 @@ there).
 - [x] P0-4 per-IP guest-API rate limiting (`app/ratelimit.py`: reads 120/min,
   writes 30/min; prod-on by default, `RATE_LIMIT_ENABLED` overrides). Vercel
   WAF stays the durable outer layer (P1-2).
-- [ ] P1/P2/P3 items — see `REVIEW_BACKLOG.md`.
+- [x] P1-5 platform root: `/api/landing` (earliest-wedding leak) removed;
+  static platform landing at `/` (2026-07-09).
+- [x] P1-6 per-wedding phone region (`settings.phone_region` → all
+  `normalize_phone` call sites; SG fallback). Owner UI knob pending a settings
+  panel.
+- [x] P1-8 platform console: grouped-count queries (query-count guard tests) +
+  `limit`/`offset` on weddings/users/approvals.
+- [x] P1-9 archived-wedding purge: `archived_at` (migration `f1a2b3c4d5e6`),
+  `app/purge.py` (30-day window), console button + `CRON_SECRET`-gated
+  `/api/internal/cron/purge-archived` for Vercel cron.
+- [x] P1-10 observability (backend): `app/obs.py` (logging, logfmt `log_event`,
+  Sentry behind `SENTRY_DSN`); `/health` pings the DB (`db_ok`).
+- [ ] Remaining P1 (7: storage metering) + P2/P3 items — see
+  `REVIEW_BACKLOG.md`.
 
 ## Phase 6 (billing) / Phase 7 (growth) — not started (by design)
 
 ## Test & verification status (2026-07-09)
 
-- `pytest`: **232 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **248 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
@@ -158,10 +171,14 @@ there).
 1. Supabase project → run `alembic upgrade head`, configure Google OAuth +
    email/password with verification, storage bucket, env vars; seed RT's
    platform-admin row.
-2. Vercel frontend + backend projects (hnd1), env vars, WAF rate rules (P1-2).
+2. Vercel frontend + backend projects (hnd1), env vars, WAF rate rules (P1-2);
+   cron entry hitting `/api/internal/cron/purge-archived` daily with
+   `Authorization: Bearer $CRON_SECRET` (backend code path is in).
 3. Email provider (Resend) → code path is in (`RESEND_API_KEY` + `EMAIL_FROM`
    env vars); create the account + verify the sending domain.
-4. Sentry (frontend + FastAPI), uptime check on `/health`.
+4. Sentry: create the project(s) and set `SENTRY_DSN` (backend init is in);
+   add `@sentry/nextjs` to the frontend; uptime check on `/health` (now pings
+   the DB — alert on `status: degraded`).
 5. Staging Supabase + Vercel preview envs; PITR/backups on from first real user.
 
 ## Decisions log

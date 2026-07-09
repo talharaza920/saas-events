@@ -8,6 +8,7 @@ notification must not roll back the state change it announces.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -16,6 +17,7 @@ import httpx
 from app.config import Settings
 
 _RESEND_URL = "https://api.resend.com/emails"
+logger = logging.getLogger("app.email")
 
 
 @dataclass
@@ -36,8 +38,8 @@ _OUTBOX_CAP = 200
 def _log(line: str) -> None:
     try:
         # ASCII-only log line: a Windows console defaults to cp1252, where a
-        # non-ASCII char in print() raises and would 500 the request.
-        print(line.encode("ascii", "replace").decode())
+        # non-ASCII char in the log stream raises and would 500 the request.
+        logger.info(line.encode("ascii", "replace").decode())
     except Exception:
         pass
 

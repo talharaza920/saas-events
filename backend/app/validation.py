@@ -12,10 +12,24 @@ from __future__ import annotations
 import phonenumbers
 from email_validator import EmailNotValidError, validate_email
 
-# The couple's region, used to interpret a national phone number typed without a
-# country code (e.g. a local SG mobile). Multi-tenant TODO: make this a per-wedding
-# setting; SG is correct for v1 (Alex & Sam).
+# Fallback region for interpreting a national phone number typed without a
+# country code. Per wedding this comes from `settings["phone_region"]`
+# (owner-editable via PATCH /settings) — see `wedding_phone_region`.
 DEFAULT_REGION = "SG"
+
+
+def is_supported_region(code: str) -> bool:
+    """True if `code` is an ISO 3166-1 alpha-2 region phonenumbers can parse for."""
+    return code in phonenumbers.SUPPORTED_REGIONS
+
+
+def wedding_phone_region(wedding) -> str:
+    """The region used to interpret this wedding's national-format phone numbers:
+    `settings["phone_region"]` when it's a supported ISO code, else DEFAULT_REGION.
+    Takes the Wedding model (or anything with a `.settings` dict)."""
+    raw = (getattr(wedding, "settings", None) or {}).get("phone_region") or ""
+    region = str(raw).strip().upper()
+    return region if is_supported_region(region) else DEFAULT_REGION
 
 
 class ContactError(ValueError):

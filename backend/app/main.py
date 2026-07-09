@@ -3,22 +3,30 @@
 M3 adds the guest-facing, tenant-scoped invite + RSVP router. Admin (auth-gated)
 question CRUD and responses land in M6.
 """
+import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.routers import admin, invite, me, platform
+from app.db import get_db
+from app.obs import init_sentry, setup_logging
+from app.routers import admin, internal, invite, me, platform
 from app.storage import UPLOAD_DIR
 
 settings = get_settings()
+setup_logging(settings)
+init_sentry(settings)
+logger = logging.getLogger("app.main")
 
 app = FastAPI(title=settings.app_name)
 
 # Make the active DB obvious in the server log on boot (local vs production).
-print(f"[startup] DB backend: {settings.db_backend} (env={settings.environment})")
+logger.info("startup: DB backend=%s env=%s", settings.db_backend, settings.environment)
 
 # Serve locally-uploaded images (dev storage backend) — DEV ONLY. On serverless
 # (Vercel) the filesystem is read-only, so creating/mounting this dir crashes the
@@ -43,13 +51,22 @@ app.add_middleware(
 
 
 @app.get("/health", tags=["meta"])
-def health() -> dict[str, str]:
-    """Liveness probe. `db` tells you which backend is active (sqlite|postgres)."""
+def health(db: Session = Depends(get_db)) -> dict:
+    """Liveness + DB probe. `db` names the active backend (sqlite|postgres);
+    `db_ok` is a real SELECT 1 against it. Always HTTP 200 (serverless: a 5xx
+    here can recycle the instance) — monitors alert on `status: degraded`."""
+    db_ok = True
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        logging.getLogger("app.health").exception("health: DB ping failed")
+        db_ok = False
     return {
-        "status": "ok",
+        "status": "ok" if db_ok else "degraded",
         "service": settings.app_name,
         "env": settings.environment,
         "db": settings.db_backend,
+        "db_ok": db_ok,
     }
 
 
@@ -58,3 +75,4 @@ app.include_router(invite.public_router)
 app.include_router(me.router)
 app.include_router(admin.router)
 app.include_router(platform.router)
+app.include_router(internal.router)

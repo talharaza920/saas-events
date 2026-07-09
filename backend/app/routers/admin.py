@@ -112,7 +112,7 @@ from app.schemas import (
     WishModerate,
 )
 from app.storage import UploadError, save_image
-from app.validation import ContactError, normalize_email, normalize_phone
+from app.validation import ContactError, normalize_email, normalize_phone, wedding_phone_region
 
 router = APIRouter(prefix="/api/w/{wedding_slug}/admin", tags=["admin"])
 
@@ -289,16 +289,17 @@ def _guests_with_rsvp(db: Session, wedding: Wedding) -> list[Guest]:
     )
 
 
-def _validated_contacts(payload) -> dict:
+def _validated_contacts(payload, wedding: Wedding) -> dict:
     """Normalize email/phone present on a guest create/update payload (E.164 phone,
-    format-checked email). Returns only the keys that were set."""
+    format-checked email). National-format phones are interpreted in the wedding's
+    configured region. Returns only the keys that were set."""
     out: dict = {}
     data = payload.model_dump(exclude_unset=True)
     try:
         if "email" in data:
             out["email"] = normalize_email(data["email"])
         if "phone" in data:
-            out["phone"] = normalize_phone(data["phone"])
+            out["phone"] = normalize_phone(data["phone"], region=wedding_phone_region(wedding))
     except ContactError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return out
@@ -380,7 +381,7 @@ def create_guest(
     db: Session = Depends(get_db),
 ) -> GuestAdmin:
     check_limit(db, wedding, "max_guests", _guest_count(db, wedding))
-    contacts = _validated_contacts(payload)
+    contacts = _validated_contacts(payload, wedding)
     tier = InviteTier(payload.invite_tier)
     guest = Guest(
         wedding_id=wedding.id,
@@ -430,7 +431,7 @@ def update_guest(
     db: Session = Depends(get_db),
 ) -> GuestAdmin:
     guest = _get_owned_guest(db, wedding, guest_id)
-    contacts = _validated_contacts(payload)  # normalize before we touch the row
+    contacts = _validated_contacts(payload, wedding)  # normalize before we touch the row
     data = payload.model_dump(exclude_unset=True)
     if "invite_tier" in data:
         guest.invite_tier = InviteTier(data.pop("invite_tier"))
@@ -1682,6 +1683,7 @@ async def import_guests(
     if creates_planned:
         check_limit(db, wedding, "max_guests", _guest_count(db, wedding), adding=creates_planned)
     qmap = {q.prompt: q for q in _questions_ordered(db, wedding)}
+    phone_region = wedding_phone_region(wedding)
     results: list[ImportRowResult] = []
     created = updated = errors = 0
     people_created = people_updated = 0
@@ -1696,7 +1698,7 @@ async def import_guests(
         except ContactError as exc:
             row_errs.append(f"Row {pg.source_row}: {exc}")
         try:
-            phone = normalize_phone(pg.phone)
+            phone = normalize_phone(pg.phone, region=phone_region)
         except ContactError as exc:
             row_errs.append(f"Row {pg.source_row}: {exc}")
 
@@ -1958,6 +1960,7 @@ def archive_wedding(
     wedding = ctx.wedding
     wedding.status = WeddingStatus.ARCHIVED
     wedding.published = False
+    wedding.archived_at = datetime.now(timezone.utc)  # starts the purge clock
     record(db, "wedding.archive", user=ctx.user, wedding=wedding)
     db.commit()
     return _lifecycle(wedding)

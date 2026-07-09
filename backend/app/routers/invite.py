@@ -39,12 +39,11 @@ from app.schemas import (
 from app.tenancy import (
     capabilities_for,
     clamp_party_members,
-    primary_wedding,
     resolve_guest,
     visible_arcs,
     visible_questions,
 )
-from app.validation import ContactError, normalize_email, normalize_phone
+from app.validation import ContactError, normalize_email, normalize_phone, wedding_phone_region
 
 # Everything here is unauthenticated (guests hold only their link), so both
 # routers carry the per-IP read limiter; the two write endpoints add the
@@ -69,14 +68,9 @@ def _landing_response(wedding) -> LandingResponse:
     )
 
 
-@public_router.get("/landing", response_model=LandingResponse)
-def get_landing(db: Session = Depends(get_db)) -> LandingResponse:
-    """Copy for the public "no link" landing page (someone visiting the root with
-    no personal link). Returns only the owner-editable `landing` block + theme."""
-    wedding = primary_wedding(db)
-    if wedding is None:
-        raise HTTPException(status_code=404, detail="No wedding configured")
-    return _landing_response(wedding)
+# NOTE: there is deliberately no bare `GET /api/landing`. The platform root is a
+# static page owned by the frontend; serving "the earliest wedding" there was a
+# single-tenant leftover that leaked one tenant's copy to the whole platform.
 
 
 @public_router.get("/w/{wedding_slug}/landing", response_model=LandingResponse)
@@ -248,7 +242,7 @@ def submit_rsvp(
     raw_phone = payload.phone if not (payload.phone and _MASK in payload.phone) else None
     try:
         email = normalize_email(raw_email)
-        phone = normalize_phone(raw_phone)
+        phone = normalize_phone(raw_phone, region=wedding_phone_region(wedding))
     except ContactError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

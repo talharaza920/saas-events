@@ -163,6 +163,14 @@ def test_publish_requires_active_and_gates_guests(client, db_session):
     assert client.get("/api/w/riley-and-sam/landing").status_code == 404
 
 
+def test_platform_root_serves_no_tenant_content(client, db_session):
+    """Review backlog #5: the bare /api/landing (earliest-active-wedding leak) is
+    gone — the platform root is static frontend copy, never a tenant's data."""
+    w = make_wedding(db_session, "wed-live", status="active", published=True)
+    make_member(db_session, w, ALICE, role="owner")
+    assert client.get("/api/landing").status_code == 404
+
+
 def test_admins_cannot_publish_unless_granted(client, db_session):
     w = make_wedding(db_session, "wed-a", status="active", published=False)
     make_member(db_session, w, ALICE, role="owner")

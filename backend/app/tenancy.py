@@ -109,23 +109,6 @@ def clamp_party_members(members, tier: InviteTier, content=None) -> list[dict]:
     return out
 
 
-def primary_wedding(db: Session) -> Wedding | None:
-    """The wedding shown on the public site root (the "no link" landing page).
-
-    Single-tenant build: the earliest active wedding. (Multi-tenant later turns the
-    root into a platform page; this stays the single-wedding fallback.)
-    """
-    return (
-        db.execute(
-            select(Wedding)
-            .where(Wedding.status == "active", Wedding.published.is_(True))
-            .order_by(Wedding.created_at)
-        )
-        .scalars()
-        .first()
-    )
-
-
 def resolve_guest(db: Session, guest_slug: str) -> tuple[Wedding, Guest] | None:
     """Resolve an unguessable guest slug to its (wedding, guest), or None.
 

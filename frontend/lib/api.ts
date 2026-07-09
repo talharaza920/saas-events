@@ -22,21 +22,6 @@ export type LandingResponse = components["schemas"]["LandingResponse"];
 export class InviteNotFound extends Error {}
 
 /**
- * Fetch the public "no link" landing copy for the site root. Returns null on any
- * failure (backend down, no wedding seeded) so the root page falls back to its
- * built-in defaults rather than erroring.
- */
-export async function fetchLanding(): Promise<LandingResponse | null> {
-  try {
-    const res = await fetch(`${API_BASE}/api/landing`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as LandingResponse;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Fetch one wedding's public landing copy (`/{weddingSlug}` page). Returns null
  * when the wedding isn't live (draft/unpublished/suspended/archived all look the
  * same) so the route can 404 neutrally.

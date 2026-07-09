@@ -822,6 +822,21 @@ class WeddingSettingsUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     admins_can_publish: bool | None = None
+    # ISO 3166-1 alpha-2 region for interpreting guests' national-format phone
+    # numbers (e.g. "US", "GB"). Unset = platform default (validation.DEFAULT_REGION).
+    phone_region: str | None = None
+
+    @field_validator("phone_region")
+    @classmethod
+    def _valid_region(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from app.validation import is_supported_region
+
+        code = v.strip().upper()
+        if not is_supported_region(code):
+            raise ValueError("phone_region must be a supported two-letter country code")
+        return code
 
 
 # --- Members (Phase 3 team management) ---------------------------------------

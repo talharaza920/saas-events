@@ -12,6 +12,8 @@ def test_health_ok():
     body = resp.json()
     assert body["status"] == "ok"
     assert "service" in body
+    # The probe really pings the DB now (REVIEW_BACKLOG P1-10).
+    assert body["db_ok"] is True
 
 
 def test_openapi_served():
