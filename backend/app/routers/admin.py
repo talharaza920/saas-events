@@ -44,7 +44,7 @@ from app.authz import WeddingCtx, require_wedding
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.emailer import send_email
-from app.entitlements import check_limit, effective_entitlements, require_feature
+from app.entitlements import check_limit, check_storage, effective_entitlements, require_feature
 from app.guest_import import make_guest_slug
 from app.models import (
     Answer,
@@ -111,7 +111,7 @@ from app.schemas import (
     WishAdmin,
     WishModerate,
 )
-from app.storage import UploadError, save_image
+from app.storage import UploadError, prepare_image, store_image
 from app.validation import ContactError, normalize_email, normalize_phone, wedding_phone_region
 
 router = APIRouter(prefix="/api/w/{wedding_slug}/admin", tags=["admin"])
@@ -361,6 +361,7 @@ def me(ctx: WeddingCtx = Depends(member_ctx), db: Session = Depends(get_db)) -> 
         published=wedding.published,
         can_publish=_can_publish(ctx),
         entitlements=effective_entitlements(db, wedding),
+        storage_bytes_used=wedding.storage_bytes_used or 0,
     )
 
 
@@ -939,16 +940,25 @@ def delete_story_arc(
 async def upload_image(
     file: UploadFile = File(...),
     wedding: Wedding = Depends(editable_wedding),
+    db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> UploadResult:
     """Accept a single image (multipart) and return a stored URL to drop into a
     story beat's `image`. Namespaced per wedding; dev → local disk, prod →
-    Supabase Storage (see app/storage.py)."""
+    Supabase Storage (see app/storage.py). Gated by the plan's `max_storage_mb`
+    against the wedding's byte counter (compressed size, checked pre-persist)."""
     data = await file.read()
     try:
-        url = save_image(settings, wedding.slug, data, file.content_type)
+        blob, ext = prepare_image(data, file.content_type)
     except UploadError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    check_storage(db, wedding, adding_bytes=len(blob))
+    try:
+        url = store_image(settings, wedding.slug, blob, ext, file.content_type or "image/png")
+    except UploadError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    wedding.storage_bytes_used = (wedding.storage_bytes_used or 0) + len(blob)
+    db.commit()
     return UploadResult(url=url)
 
 

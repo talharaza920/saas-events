@@ -87,16 +87,70 @@ def compress_image(data: bytes, ext: str) -> bytes:
         return data
 
 
-def save_image(settings: Settings, wedding_slug: str, data: bytes, content_type: str | None) -> str:
-    """Validate, compress, then persist an uploaded image; return its public URL."""
+def prepare_image(data: bytes, content_type: str | None) -> tuple[bytes, str]:
+    """Validate + compress an upload; returns (bytes_to_store, ext). Split from
+    `store_image` so the caller can gate on the EXACT stored size (storage
+    entitlement) before anything is persisted."""
     ext = validate(content_type, len(data))
-    data = compress_image(data, ext)
+    return compress_image(data, ext), ext
+
+
+def store_image(
+    settings: Settings, wedding_slug: str, data: bytes, ext: str, content_type: str
+) -> str:
+    """Persist already-prepared image bytes; return the public URL."""
     namespace = _safe_slug(wedding_slug)
     filename = f"{uuid.uuid4().hex}.{ext}"
-
     if settings.use_supabase_storage:
-        return _save_supabase(settings, namespace, filename, data, content_type or "image/png")
+        return _save_supabase(settings, namespace, filename, data, content_type)
     return _save_local(settings, namespace, filename, data)
+
+
+def save_image(settings: Settings, wedding_slug: str, data: bytes, content_type: str | None) -> str:
+    """Validate, compress, then persist an uploaded image; return its public URL."""
+    data, ext = prepare_image(data, content_type)
+    return store_image(settings, wedding_slug, data, ext, content_type or "image/png")
+
+
+def measure_wedding_media(settings: Settings, wedding_slug: str) -> int | None:
+    """Total bytes actually in storage under a wedding's namespace, or None when
+    it can't be measured (provider error) — callers must treat None as "leave
+    the counter alone", never as zero."""
+    namespace = _safe_slug(wedding_slug)
+    try:
+        if settings.use_supabase_storage:
+            return _measure_supabase_prefix(settings, namespace)
+        folder = UPLOAD_DIR / namespace
+        if not folder.is_dir():
+            return 0
+        return sum(f.stat().st_size for f in folder.iterdir() if f.is_file())
+    except Exception as exc:  # noqa: BLE001 — measurement is advisory
+        logging.getLogger("app.storage").warning("media measure failed for %s: %s", namespace, exc)
+        return None
+
+
+def _measure_supabase_prefix(settings: Settings, namespace: str) -> int:
+    """Sum object sizes under `namespace/` via the Storage list API."""
+    import httpx
+
+    bucket = settings.supabase_storage_bucket
+    base = settings.supabase_url.rstrip("/")
+    headers = {
+        "Authorization": f"Bearer {settings.supabase_service_key}",
+        "apikey": settings.supabase_service_key,
+    }
+    resp = httpx.post(
+        f"{base}/storage/v1/object/list/{bucket}",
+        json={"prefix": namespace, "limit": 1000},
+        headers=headers,
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    return sum(
+        int((item.get("metadata") or {}).get("size") or 0)
+        for item in resp.json()
+        if item.get("name")
+    )
 
 
 def _save_local(settings: Settings, namespace: str, filename: str, data: bytes) -> str:

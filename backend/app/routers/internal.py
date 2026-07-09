@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.purge import purge_archived_weddings
+from app.usage import reconcile_storage
 
 router = APIRouter(prefix="/api/internal", tags=["internal"])
 
@@ -43,3 +44,15 @@ def cron_purge_archived(
     """Scheduled hard-delete of weddings archived past the 30-day undo window."""
     purged = purge_archived_weddings(db, settings)
     return {"purged": purged, "count": len(purged)}
+
+
+@router.get("/cron/reconcile-storage", dependencies=[Depends(require_cron_secret)])
+@router.post("/cron/reconcile-storage", dependencies=[Depends(require_cron_secret)])
+def cron_reconcile_storage(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Scheduled correction of each wedding's `storage_bytes_used` counter
+    against what's actually in the storage bucket (see app/usage.py)."""
+    corrected = reconcile_storage(db, settings)
+    return {"corrected": corrected, "count": len(corrected)}

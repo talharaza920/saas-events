@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum,
@@ -133,6 +134,12 @@ class Wedding(Base):
     # When the owner archived it (status="archived") — starts the 30-day undo
     # window; the purge job hard-deletes past it. Cleared on reinstate.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Bytes of uploaded media attributed to this wedding — incremented on upload
+    # (enforces the max_storage_mb entitlement) and periodically reconciled
+    # against the actual bucket by the cron job (the counter alone drifts).
+    storage_bytes_used: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     guests: Mapped[list[Guest]] = relationship(back_populates="wedding", cascade="all, delete-orphan")

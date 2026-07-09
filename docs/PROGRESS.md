@@ -4,8 +4,8 @@ The resumable source of truth for platform work. Phases are defined in
 `SAAS_PLAN.md`. The predecessor build's milestone history (M1–M14) lives in
 that private repo, not here.
 
-_Last updated: 2026-07-09 (Phases 1–5 built & tested locally; review P0 fixes
-and P1 items 5/6/8/9/10 landed — see `REVIEW_BACKLOG.md`)._
+_Last updated: 2026-07-10 (Phases 1–5 built & tested locally; review P0 and
+ALL P1 items landed — see `REVIEW_BACKLOG.md`; P2 is next)._
 
 ## Where things stand (one paragraph)
 
@@ -117,8 +117,8 @@ servers); `tsc`/`eslint`/`next build` clean.
 - [x] Entitlements block surfaced in `/api/w/{slug}/admin/me`; friendly 403
   detail with a dormant "contact us" upgrade hint. Plans editor + per-wedding
   assignment in the console.
-- [ ] `max_storage_mb` is defined but not yet metered (needs Supabase Storage
-  usage accounting — per-upload caps exist from Phase 0).
+- [x] `max_storage_mb` metered + enforced (2026-07-10, review P1-7):
+  `storage_bytes_used` counter gates `/upload`; reconcile cron corrects drift.
 
 ## Code review & hardening — P0 DONE 2026-07-09
 
@@ -147,14 +147,16 @@ there).
   `/api/internal/cron/purge-archived` for Vercel cron.
 - [x] P1-10 observability (backend): `app/obs.py` (logging, logfmt `log_event`,
   Sentry behind `SENTRY_DSN`); `/health` pings the DB (`db_ok`).
-- [ ] Remaining P1 (7: storage metering) + P2/P3 items — see
-  `REVIEW_BACKLOG.md`.
+- [x] P1-7 storage metering (2026-07-10): `storage_bytes_used` counter
+  (migration `a7b8c9d0e1f2`) gates `/upload` against `max_storage_mb`;
+  reconcile cron (`app/usage.py`) corrects drift against the bucket.
+- [ ] P1 complete — next: P2 items top-down, see `REVIEW_BACKLOG.md`.
 
 ## Phase 6 (billing) / Phase 7 (growth) — not started (by design)
 
 ## Test & verification status (2026-07-09)
 
-- `pytest`: **248 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **253 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
@@ -172,8 +174,9 @@ there).
    email/password with verification, storage bucket, env vars; seed RT's
    platform-admin row.
 2. Vercel frontend + backend projects (hnd1), env vars, WAF rate rules (P1-2);
-   cron entry hitting `/api/internal/cron/purge-archived` daily with
-   `Authorization: Bearer $CRON_SECRET` (backend code path is in).
+   cron entries with `Authorization: Bearer $CRON_SECRET` (backend code paths
+   are in): `/api/internal/cron/purge-archived` daily,
+   `/api/internal/cron/reconcile-storage` weekly.
 3. Email provider (Resend) → code path is in (`RESEND_API_KEY` + `EMAIL_FROM`
    env vars); create the account + verify the sending domain.
 4. Sentry: create the project(s) and set `SENTRY_DSN` (backend init is in);

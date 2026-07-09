@@ -64,10 +64,16 @@ handful of correctness edges.
   validated ISO code) → `wedding_phone_region()` threaded into guest RSVP,
   admin guest CRUD and import; SG stays the fallback. Owner-facing UI knob
   still owed (no settings panel exists yet; API is ready)._
-- [ ] **7. `max_storage_mb` entitlement never enforced** — Cost/abuse — **M**
+- [x] **7. `max_storage_mb` entitlement never enforced** — Cost/abuse — **M**
   — uploads are per-file capped (15 MB) but unlimited in count. Needs
   per-wedding usage accounting: DB byte counter incremented on upload +
   occasional reconciliation against the bucket (counter alone drifts).
+  _Done 2026-07-10: `weddings.storage_bytes_used` (migration `a7b8c9d0e1f2`),
+  `check_storage` gate on /upload (exact compressed size, checked
+  pre-persist; 0 MB = uploads off), counter surfaced in admin `/me`;
+  `app/usage.py` reconcile (skips unmeasurable namespaces) via
+  `/api/internal/cron/reconcile-storage`. Infra owed: the Vercel cron entry
+  (weekly is plenty). Dashboard usage meter UI can come later._
 - [x] **8. Platform console N+1 + unpaginated** — Scaling — **M** —
   `/platform/weddings` (4 queries/wedding), `/platform/users`
   (1 count/profile), `/platform/approvals` (rules re-eval per item); all

@@ -292,6 +292,9 @@ class AdminMe(BaseModel):
     # Effective entitlements for the wedding (plan ∪ overrides; Phase 5). The UI
     # uses this to gray out features — the server re-checks on every write.
     entitlements: dict[str, Any] = {}
+    # Upload bytes attributed to this wedding, for showing usage against
+    # entitlements.max_storage_mb (counter; reconciled by the cron job).
+    storage_bytes_used: int = 0
 
 
 # --- RSVP rollup pieces (defined before GuestAdmin, which embeds them) ------

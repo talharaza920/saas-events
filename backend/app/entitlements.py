@@ -38,6 +38,7 @@ _LIMIT_MESSAGES = {
     "max_members": "Team-member limit reached for this wedding's plan",
     "max_custom_questions": "Custom-question limit reached for this wedding's plan",
     "max_story_arcs": "Story-chapter limit reached for this wedding's plan",
+    "max_storage_mb": "Storage limit reached for this wedding's plan",
     "max_weddings_per_account": "You've reached the number of weddings your account allows",
 }
 _FEATURE_MESSAGES = {
@@ -93,6 +94,20 @@ def check_limit(db: Session, wedding: Wedding, key: str, current_count: int, add
         return  # malformed entitlement — never lock a tenant out over bad config
     if current_count + adding > limit:
         raise _denied(_LIMIT_MESSAGES.get(key, "Plan limit reached"))
+
+
+def check_storage(db: Session, wedding: Wedding, adding_bytes: int) -> None:
+    """Raise 403 when storing `adding_bytes` more would push the wedding past its
+    `max_storage_mb` entitlement (compared against the `storage_bytes_used`
+    counter, which the reconcile job keeps honest). 0 = uploads off entirely."""
+    limit_mb = effective_entitlements(db, wedding).get(
+        "max_storage_mb", DEFAULT_ENTITLEMENTS["max_storage_mb"]
+    )
+    if not isinstance(limit_mb, (int, float)) or isinstance(limit_mb, bool):
+        return  # malformed entitlement — never lock a tenant out over bad config
+    used = wedding.storage_bytes_used or 0
+    if used + adding_bytes > limit_mb * 1024 * 1024:
+        raise _denied(_LIMIT_MESSAGES["max_storage_mb"])
 
 
 def require_feature(db: Session, wedding: Wedding, key: str) -> None:
