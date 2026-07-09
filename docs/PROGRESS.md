@@ -4,7 +4,8 @@ The resumable source of truth for platform work. Phases are defined in
 `SAAS_PLAN.md`. The predecessor build's milestone history (M1–M14) lives in
 that private repo, not here.
 
-_Last updated: 2026-07-09 (Phases 1–5 built & tested locally)._
+_Last updated: 2026-07-09 (Phases 1–5 built & tested locally; review P0 fixes
+landed — see `REVIEW_BACKLOG.md`)._
 
 ## Where things stand (one paragraph)
 
@@ -16,9 +17,12 @@ end-to-end, co-admin invites/transfer/revoke work, the platform console
 server-side. **Nothing is provisioned in the cloud yet** — Supabase (auth +
 Postgres + storage), Vercel, WAF rate limits, a real email provider, and
 Sentry are the remaining infrastructure work, deliberately deferred until RT
-creates those accounts. Suite: **213 pytest** (offline) + **20/20 E2E smoke**
-checks (`frontend/scripts/smoke-e2e.mjs` against local dev servers);
-`tsc`/`eslint`/`next build` clean.
+creates those accounts. A full-codebase review (2026-07-09) found no
+cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
+and the four P0 items (N+1 eager loading, introspection cache, Resend email
+seam, guest-API rate limiting) are done. Suite: **232 pytest** (offline) +
+**20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs` against local dev
+servers); `tsc`/`eslint`/`next build` clean.
 
 ## Phase 0 — Fork, personal-data scrub, security hardening
 
@@ -116,14 +120,33 @@ checks (`frontend/scripts/smoke-e2e.mjs` against local dev servers);
 - [ ] `max_storage_mb` is defined but not yet metered (needs Supabase Storage
   usage accounting — per-upload caps exist from Phase 0).
 
+## Code review & hardening — P0 DONE 2026-07-09
+
+Full-repo review (security / multi-tenancy / scaling / best practices);
+findings + priorities in **`REVIEW_BACKLOG.md`** (work it top-down, tick items
+there).
+
+- [x] P0-1 N+1 eager loading on `/guests`, `/responses`, `/summary`, export,
+  wishes list (`selectinload` chains + query-count guard tests).
+- [x] P0-2 60s introspection cache in `app/auth.py` (token-hash keyed, success
+  only; membership/disabled checks still per-request).
+- [x] P0-3 Resend behind `RESEND_API_KEY` + `EMAIL_FROM` in `app/emailer.py`
+  (outbox stays the fallback; never raises). Provider account still owed (infra).
+- [x] P0-4 per-IP guest-API rate limiting (`app/ratelimit.py`: reads 120/min,
+  writes 30/min; prod-on by default, `RATE_LIMIT_ENABLED` overrides). Vercel
+  WAF stays the durable outer layer (P1-2).
+- [ ] P1/P2/P3 items — see `REVIEW_BACKLOG.md`.
+
 ## Phase 6 (billing) / Phase 7 (growth) — not started (by design)
 
 ## Test & verification status (2026-07-09)
 
-- `pytest`: **213 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **232 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
+  Review-P0 additions: query-count guards (`test_query_efficiency.py`),
+  introspection cache, rate limiting, emailer seam.
 - Frontend: `tsc --noEmit`, `eslint .`, `next build` clean.
 - E2E smoke (`node scripts/smoke-e2e.mjs`, needs both dev servers +
   `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,
@@ -136,7 +159,8 @@ checks (`frontend/scripts/smoke-e2e.mjs` against local dev servers);
    email/password with verification, storage bucket, env vars; seed RT's
    platform-admin row.
 2. Vercel frontend + backend projects (hnd1), env vars, WAF rate rules (P1-2).
-3. Email provider (Resend) → swap into `app/emailer.py` (single seam).
+3. Email provider (Resend) → code path is in (`RESEND_API_KEY` + `EMAIL_FROM`
+   env vars); create the account + verify the sending domain.
 4. Sentry (frontend + FastAPI), uptime check on `/health`.
 5. Staging Supabase + Vercel preview envs; PITR/backups on from first real user.
 

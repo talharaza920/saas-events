@@ -124,3 +124,18 @@ fields — never label or hint at the tier client-side.
 `<textPath startOffset="50%" text-anchor="middle">` on a full-circle path is
 the only combination that centres reliably; measuring/offsetting glyphs
 manually drifts per browser. See `components/invite/brand/Wordmark.tsx`.
+
+## Serverless + NullPool makes lazy loading a footgun
+Any endpoint whose serializer walks ORM relationships (rsvp → companions →
+answers) MUST `selectinload` them: on local SQLite the N+1 is invisible, but
+each lazy load is a full round-trip to the Supabase pooler from a serverless
+function (NullPool, no cache) — a 200-guest list turns into ~600 queries.
+`tests/test_query_efficiency.py` pins the SELECT count per hot endpoint so a
+regression fails the suite instead of shipping slow.
+
+## Module-level caches need a test-reset seam
+The auth introspection cache and rate-limit buckets are module-level (right
+for serverless: per-instance is the scope you want), but tests reuse the same
+bearer strings and client IP — an autouse conftest fixture clears both between
+tests or results bleed across files. Cache only SUCCESSES keyed by token
+hash; failures must always re-verify.

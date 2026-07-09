@@ -12,7 +12,9 @@ theme), and manage guests/RSVPs from a dashboard. The fork is scrubbed: this
 repo must contain **no** personal data from the original wedding, ever.
 
 **`docs/SAAS_PLAN.md` is the governing plan.** Read it first, then
-`docs/PROGRESS.md` for where work stands. `docs/PLAN.md` documents the
+`docs/PROGRESS.md` for where work stands. `docs/REVIEW_BACKLOG.md` is the
+prioritised code-review backlog (P0 done; work P1→P3 top-down, tick items
+there). `docs/PLAN.md` documents the
 inherited architecture (data model, invite tiers, API); `docs/DESIGN.md` the
 theme/token system; `LEARNINGS.md` the carried-over gotchas.
 

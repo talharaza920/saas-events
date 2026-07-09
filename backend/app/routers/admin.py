@@ -266,9 +266,24 @@ def _questions_ordered(db: Session, wedding: Wedding) -> list[Question]:
     )
 
 
+# Eager-load everything _guest_admin walks (rsvp → companions → answers, plus the
+# rsvp's own answers). Without this the guest list / export lazy-load per row —
+# ~600+ queries for a 200-guest wedding, which over the serverless → Supabase
+# pooler hop (NullPool, one round-trip each) dominates the response time.
+_GUEST_ADMIN_LOADS = (
+    selectinload(Guest.rsvp).selectinload(Rsvp.companions).selectinload(Companion.answers),
+    selectinload(Guest.rsvp).selectinload(Rsvp.answers),
+)
+
+
 def _guests_with_rsvp(db: Session, wedding: Wedding) -> list[Guest]:
     return (
-        db.execute(select(Guest).where(Guest.wedding_id == wedding.id).order_by(Guest.name))
+        db.execute(
+            select(Guest)
+            .where(Guest.wedding_id == wedding.id)
+            .order_by(Guest.name)
+            .options(*_GUEST_ADMIN_LOADS)
+        )
         .scalars()
         .all()
     )
@@ -353,13 +368,7 @@ def me(ctx: WeddingCtx = Depends(member_ctx), db: Session = Depends(get_db)) -> 
 def list_guests(
     wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
 ) -> list[GuestAdmin]:
-    guests = (
-        db.execute(
-            select(Guest).where(Guest.wedding_id == wedding.id).order_by(Guest.name)
-        )
-        .scalars()
-        .all()
-    )
+    guests = _guests_with_rsvp(db, wedding)
     qmeta = _question_meta(db, wedding)
     return [_guest_admin(g, qmeta, wedding.content) for g in guests]
 
@@ -948,9 +957,9 @@ def _attending_rsvps(db: Session, wedding: Wedding) -> list[Rsvp]:
         db.execute(
             select(Rsvp)
             .where(Rsvp.wedding_id == wedding.id)
-            # Callers walk r.companions per row — eager-load it so summary/timeline
-            # don't fan out into one query per RSVP against Supabase.
-            .options(selectinload(Rsvp.companions))
+            # Callers walk r.companions and r.answers per row — eager-load both so
+            # summary/timeline don't fan out into one query per RSVP against Supabase.
+            .options(selectinload(Rsvp.companions), selectinload(Rsvp.answers))
         )
         .scalars()
         .all()
@@ -967,6 +976,12 @@ def list_responses(
             .where(Rsvp.wedding_id == wedding.id)
             # Most-recently-changed first, so new RSVPs and edits surface at the top.
             .order_by(Rsvp.updated_at.desc())
+            # Serializer walks guest + companions(+answers) + answers per row.
+            .options(
+                selectinload(Rsvp.guest),
+                selectinload(Rsvp.companions).selectinload(Companion.answers),
+                selectinload(Rsvp.answers),
+            )
         )
         .scalars()
         .all()
@@ -1433,6 +1448,8 @@ def list_wishes(
             select(Wish)
             .where(Wish.wedding_id == wedding.id)
             .order_by(Wish.created_at.desc())
+            # _wish_admin reads w.guest.name — avoid one query per wish.
+            .options(selectinload(Wish.guest))
         )
         .scalars()
         .all()

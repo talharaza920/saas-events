@@ -22,8 +22,11 @@ Guests never authenticate (they use signed links).
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
+import threading
+import time
 
 import httpx
 from fastapi import Depends, Header, HTTPException, status
@@ -59,6 +62,55 @@ def _bearer_token(authorization: str | None) -> str:
     if not token:
         raise _unauthorized("Missing bearer token")
     return token
+
+
+# --- Introspection cache -----------------------------------------------------
+# Successful introspections are cached briefly (keyed by token HASH — the raw
+# token is never stored) so a dashboard burst doesn't round-trip to Supabase per
+# request. Safety: only VERIFIED principals are cached, failures never are, and
+# the per-request membership / disabled-account checks (app/authz.py) still run
+# on every call — the TTL only bounds how long a *revoked Supabase session*
+# keeps authenticating, not what it can access. Per-process (serverless
+# instances each keep their own), which is exactly the scope we want.
+INTROSPECTION_TTL_SECONDS = 60.0
+_INTROSPECTION_CACHE_MAX = 1024
+_introspection_cache: dict[str, tuple[float, AuthedUser]] = {}
+_introspection_lock = threading.Lock()
+
+
+def _cache_key(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _cached_user(token: str) -> AuthedUser | None:
+    with _introspection_lock:
+        hit = _introspection_cache.get(_cache_key(token))
+        if hit is None:
+            return None
+        expires_at, user = hit
+        if time.monotonic() >= expires_at:
+            _introspection_cache.pop(_cache_key(token), None)
+            return None
+        return user
+
+
+def _cache_user(token: str, user: AuthedUser) -> None:
+    now = time.monotonic()
+    with _introspection_lock:
+        if len(_introspection_cache) >= _INTROSPECTION_CACHE_MAX:
+            # Drop expired entries; if everything is fresh, start over (rare —
+            # means >1024 distinct live sessions on one instance).
+            live = {k: v for k, v in _introspection_cache.items() if v[0] > now}
+            _introspection_cache.clear()
+            if len(live) < _INTROSPECTION_CACHE_MAX:
+                _introspection_cache.update(live)
+        _introspection_cache[_cache_key(token)] = (now + INTROSPECTION_TTL_SECONDS, user)
+
+
+def clear_introspection_cache() -> None:
+    """Testing seam — the cache is module-level state."""
+    with _introspection_lock:
+        _introspection_cache.clear()
 
 
 def verify_supabase_token(settings: Settings, token: str) -> dict:
@@ -122,6 +174,9 @@ def get_current_user(
     # --- Supabase token introspection -------------------------------------
     if not settings.supabase_url or not settings.supabase_publishable_key:
         raise _unauthorized("Auth is not configured")
+    cached = _cached_user(token)
+    if cached is not None:
+        return cached
     user = verify_supabase_token(settings, token)
 
     email = (user.get("email") or "").strip().lower()
@@ -134,7 +189,9 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Please verify your email address first",
         )
-    return AuthedUser(sub=str(user["id"]), email=email, via="supabase")
+    authed = AuthedUser(sub=str(user["id"]), email=email, via="supabase")
+    _cache_user(token, authed)
+    return authed
 
 
 # Back-compat alias for pre-Phase-1 call sites.

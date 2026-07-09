@@ -46,6 +46,21 @@ class Settings(BaseSettings):
     # (per-wedding access moves to a `wedding_members` table) — keep it small.
     admin_emails: str = ""
 
+    # --- Transactional email (app/emailer.py) ----------------------------------
+    # When BOTH are set, emails go out via Resend's HTTP API; otherwise they land
+    # only in the dev outbox + server log. `email_from` must be a sender Resend
+    # has verified, e.g. "Invites <invites@yourdomain.com>".
+    resend_api_key: str = ""
+    email_from: str = ""
+
+    # --- Rate limiting (app/ratelimit.py) --------------------------------------
+    # Per-instance fixed-window limits on the UNAUTHENTICATED guest API. Default
+    # (None) = enabled only in production; set RATE_LIMIT_ENABLED=true/false to
+    # force either way (tests enable it explicitly). Per-IP, per minute.
+    rate_limit_enabled: bool | None = None
+    rate_limit_guest_reads_per_minute: int = 120
+    rate_limit_guest_writes_per_minute: int = 30
+
     # LOCAL-DEV ONLY: a static bearer token that stands in for a Supabase login
     # so /admin works on SQLite without Supabase Auth. Empty in production (then
     # only a real Supabase session is accepted). Set it in .env.local.

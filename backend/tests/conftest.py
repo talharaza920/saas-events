@@ -14,10 +14,24 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.ratelimit as ratelimit
+from app.auth import clear_introspection_cache
 from app.config import Settings, get_settings
 from app.db import Base, get_db
 from app.main import app
 from tests.helpers import DEV_TOKEN
+
+
+@pytest.fixture(autouse=True)
+def _clear_module_state():
+    """The introspection cache and rate-limit buckets are module-level; clear
+    them so one test's tokens/windows never leak into the next (tests reuse the
+    same bearer strings and client IP)."""
+    clear_introspection_cache()
+    ratelimit.reset()
+    yield
+    clear_introspection_cache()
+    ratelimit.reset()
 
 
 def _settings(**overrides) -> Settings:

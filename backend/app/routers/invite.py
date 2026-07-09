@@ -17,6 +17,7 @@ from app.answers import is_party_question, person_question_applies
 from app.audit import SOURCE_GUEST, stamp_rsvp
 from app.db import get_db
 from app.entitlements import feature_enabled
+from app.ratelimit import guest_read_limit, guest_write_limit
 from app.models import Answer, Companion, CompanionKind, Rsvp, Wedding, Wish
 from app.schemas import (
     AnswerPublic,
@@ -45,11 +46,18 @@ from app.tenancy import (
 )
 from app.validation import ContactError, normalize_email, normalize_phone
 
-router = APIRouter(prefix="/api/i", tags=["invite"])
+# Everything here is unauthenticated (guests hold only their link), so both
+# routers carry the per-IP read limiter; the two write endpoints add the
+# stricter write limiter on top (see app/ratelimit.py).
+router = APIRouter(
+    prefix="/api/i", tags=["invite"], dependencies=[Depends(guest_read_limit)]
+)
 
 # Public, non-guest endpoints (the site root). Separate prefix so it never
 # collides with the `/{guest_slug}` dynamic route above.
-public_router = APIRouter(prefix="/api", tags=["public"])
+public_router = APIRouter(
+    prefix="/api", tags=["public"], dependencies=[Depends(guest_read_limit)]
+)
 
 
 def _landing_response(wedding) -> LandingResponse:
@@ -210,7 +218,11 @@ def get_invite(guest_slug: str, db: Session = Depends(get_db)) -> InviteResponse
     )
 
 
-@router.post("/{guest_slug}/rsvp", response_model=RsvpConfirmation)
+@router.post(
+    "/{guest_slug}/rsvp",
+    response_model=RsvpConfirmation,
+    dependencies=[Depends(guest_write_limit)],
+)
 def submit_rsvp(
     guest_slug: str, payload: RsvpSubmit, db: Session = Depends(get_db)
 ) -> RsvpConfirmation:
@@ -355,7 +367,12 @@ def list_wishes(guest_slug: str, db: Session = Depends(get_db)) -> list[WishPubl
     return [WishPublic(name=w.name, message=w.message, created_at=w.created_at) for w in rows]
 
 
-@router.post("/{guest_slug}/wishes", response_model=WishCreated, status_code=201)
+@router.post(
+    "/{guest_slug}/wishes",
+    response_model=WishCreated,
+    status_code=201,
+    dependencies=[Depends(guest_write_limit)],
+)
 def create_wish(
     guest_slug: str, payload: WishCreate, db: Session = Depends(get_db)
 ) -> WishCreated:
