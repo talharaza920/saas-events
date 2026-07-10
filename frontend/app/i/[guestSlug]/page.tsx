@@ -83,17 +83,23 @@ export default async function InvitePage({
   const content = parseContent(wedding);
   // Story comes from the arcs this guest is allowed to see (resolved server-side
   // per-guest). Fall back to the legacy embedded content.story if none. >1 arc
-  // renders as a carousel inside <Story>.
+  // renders as a carousel inside <Story>. `show_story: false` = the owner hid
+  // the story for THIS guest — skip the section (and its nav link) entirely
+  // rather than falling back to the legacy block.
+  const showStory = invite.show_story ?? true;
   const arcs = invite.story_arcs ?? [];
   const stories = arcs.length
     ? arcs.map((a) => parseStoryContent(a.content))
     : [content.story];
+  const nav = showStory
+    ? content.nav
+    : { ...content.nav, links: content.nav.links.filter((l) => l.href !== "#story") };
   const tokens = (wedding.theme_tokens ?? null) as ThemeTokensOverride | null;
 
   return (
     <InviteThemeProvider tokens={tokens}>
       <ScrollProgress />
-      <Nav nav={content.nav} />
+      <Nav nav={nav} />
       <PetTheCat />
       <Box sx={{ bgcolor: "background.default", color: "text.primary" }}>
         <Cover
@@ -103,8 +109,9 @@ export default async function InvitePage({
           cover={content.cover}
           brand={content.brand}
           event={content.event}
+          storyHidden={!showStory}
         />
-        <Story stories={stories} sectionLabel={content.storySection} />
+        {showStory && <Story stories={stories} sectionLabel={content.storySection} />}
         <EventDetails day={content.day} event={content.event} />
         <DressCode dressCode={content.dressCode} />
         <Faq faq={content.faq} />

@@ -173,16 +173,18 @@ def visible_questions(db: Session, wedding: Wedding, guest: Guest) -> list[Quest
 def visible_arcs(db: Session, wedding: Wedding, guest: Guest) -> list[StoryArc]:
     """Story arcs this guest should see, ordered.
 
-    Default (no override): every `visible` arc on the wedding. If the guest has a
-    `story_arc_ids` override, they see exactly those arcs instead — even ones the
-    owner has otherwise hidden (the override is a deliberate per-invitee pick) —
-    validated to this wedding and returned in the arcs' own sort order.
+    Default (override is NULL): every `visible` arc on the wedding. An override
+    of `[]` hides the story entirely for this guest. A non-empty override means
+    exactly those arcs — even ones the owner has otherwise hidden (a deliberate
+    per-invitee pick) — validated to this wedding, in the arcs' own sort order.
 
     Targeting is by arc id ONLY; the tier is never the selector and never leaks.
     """
-    override = guest.story_arc_ids or []
+    override = guest.story_arc_ids
     base = select(StoryArc).where(StoryArc.wedding_id == wedding.id)
-    if override:
+    if override is not None:
+        if not override:
+            return []  # explicit "no story for this guest"
         wanted = {str(x) for x in override}
         rows = (
             db.execute(base.order_by(StoryArc.sort_order, StoryArc.title)).scalars().all()

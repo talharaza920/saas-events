@@ -47,7 +47,11 @@ export interface GuestFormValues {
   /** Owner's pre-RSVP headcount estimate (incl. the invitee). "" = no estimate. */
   expected_party_size: string;
   invited: boolean;
-  /** Story-arc override (arc ids). Empty = this guest sees every visible arc. */
+  /** Story visibility for this guest: all visible arcs / hidden / a custom pick.
+   * Split from the id list so an in-progress empty custom pick is never
+   * mistaken for "hide" (the API encodes hide as an explicit []). */
+  story_mode: "all" | "none" | "custom";
+  /** The custom pick (arc ids) — only meaningful when story_mode is "custom". */
   story_arc_ids: string[];
   /** RSVP status the owner can set/correct: pending | attending | declined. */
   rsvp_status: string;
@@ -120,7 +124,10 @@ function fromGuest(g?: GuestAdmin | null): GuestFormValues {
     batch: g?.batch ?? "",
     expected_party_size: g?.expected_party_size != null ? String(g.expected_party_size) : "",
     invited: g?.invited ?? true,
-    story_arc_ids: g?.story_arc_ids ?? [],
+    // Server tri-state: null = default, [] = hidden, non-empty = custom pick.
+    story_mode:
+      g?.story_arc_ids == null ? "all" : g.story_arc_ids.length === 0 ? "none" : "custom",
+    story_arc_ids: (g?.story_arc_ids ?? []).map(String),
     rsvp_status: g?.rsvp_status ?? "pending",
     partyAnswers: answersFrom(g?.answers),
     adults,
@@ -245,6 +252,10 @@ export default function GuestFormDialog({
   async function handleSave() {
     if (!values.greeting_name.trim()) {
       setError("Greeting is required — it's the invite's “Dear …” line.");
+      return;
+    }
+    if (values.story_mode === "custom" && values.story_arc_ids.length === 0) {
+      setError("Pick at least one story arc, or choose “No story” to hide the section.");
       return;
     }
     if (attendingNow) {
@@ -498,50 +509,69 @@ export default function GuestFormDialog({
             </Section>
           )}
 
-          {/* Story-arc override (advanced) */}
-          {arcs.length > 1 && (
-            <Section title="Story arc override" subtitle="Advanced" defaultExpanded={false}>
+          {/* Story visibility (advanced): default / hide entirely / custom pick */}
+          {arcs.length > 0 && (
+            <Section title="Story visibility" subtitle="Advanced" defaultExpanded={false}>
               <TextField
-                label="Story arc override"
+                label="Story shown to this guest"
                 select
                 fullWidth
-                value={values.story_arc_ids}
+                value={values.story_mode}
                 onChange={(e) =>
                   setValues((prev) => ({
                     ...prev,
-                    story_arc_ids:
-                      typeof e.target.value === "string"
-                        ? e.target.value.split(",").filter(Boolean)
-                        : (e.target.value as unknown as string[]),
+                    story_mode: e.target.value as GuestFormValues["story_mode"],
                   }))
                 }
-                helperText="Leave empty to show every visible arc. Pick one or more to show only those to this guest."
-                slotProps={{
-                  select: {
-                    multiple: true,
-                    displayEmpty: true,
-                    renderValue: (selected: unknown) => {
-                      const ids = selected as string[];
-                      if (ids.length === 0)
-                        return <Box sx={{ color: "text.secondary" }}>All visible arcs</Box>;
-                      return (
-                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                          {ids.map((id) => (
-                            <Chip key={id} size="small" label={arcTitle(id)} />
-                          ))}
-                        </Box>
-                      );
-                    },
-                  },
-                }}
+                helperText="The invite renders the same for everyone otherwise — a guest with no story simply doesn't get that section."
               >
-                {arcs.map((a) => (
-                  <MenuItem key={a.id} value={a.id}>
-                    <Checkbox checked={values.story_arc_ids.includes(a.id)} />
-                    <ListItemText primary={a.title} secondary={a.visible ? undefined : "Hidden"} />
-                  </MenuItem>
-                ))}
+                <MenuItem value="all">All visible arcs (default)</MenuItem>
+                <MenuItem value="none">No story — hide the section for this guest</MenuItem>
+                {arcs.length > 1 && <MenuItem value="custom">Only specific arcs…</MenuItem>}
               </TextField>
+              {values.story_mode === "custom" && (
+                <TextField
+                  label="Arcs this guest sees"
+                  select
+                  fullWidth
+                  value={values.story_arc_ids}
+                  onChange={(e) =>
+                    setValues((prev) => ({
+                      ...prev,
+                      story_arc_ids:
+                        typeof e.target.value === "string"
+                          ? e.target.value.split(",").filter(Boolean)
+                          : (e.target.value as unknown as string[]),
+                    }))
+                  }
+                  helperText="Pick one or more. Hidden arcs can be deliberately shown to just this guest."
+                  slotProps={{
+                    select: {
+                      multiple: true,
+                      displayEmpty: true,
+                      renderValue: (selected: unknown) => {
+                        const ids = selected as string[];
+                        if (ids.length === 0)
+                          return <Box sx={{ color: "text.secondary" }}>Pick at least one arc</Box>;
+                        return (
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                            {ids.map((id) => (
+                              <Chip key={id} size="small" label={arcTitle(id)} />
+                            ))}
+                          </Box>
+                        );
+                      },
+                    },
+                  }}
+                >
+                  {arcs.map((a) => (
+                    <MenuItem key={a.id} value={a.id}>
+                      <Checkbox checked={values.story_arc_ids.includes(a.id)} />
+                      <ListItemText primary={a.title} secondary={a.visible ? undefined : "Hidden"} />
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
             </Section>
           )}
 

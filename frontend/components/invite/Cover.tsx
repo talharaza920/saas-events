@@ -46,6 +46,7 @@ export default function Cover({
   cover,
   brand,
   event,
+  storyHidden = false,
 }: {
   firstName: string;
   // Invitee-level greeting override (e.g. "John & Jane"); falls back to firstName.
@@ -54,6 +55,9 @@ export default function Cover({
   cover: CoverContent;
   brand: BrandContent;
   event: EventDetails;
+  /** True when the story section isn't rendered for this guest — the scroll cue
+   * then points at the day's details instead of a nonexistent #story anchor. */
+  storyHidden?: boolean;
 }) {
   const t = useCountdown(eventTargetISO(event.date_iso, event.start_time));
   const who = greetingName?.trim() || firstName;
@@ -151,8 +155,8 @@ export default function Cover({
       {cover.story_cue !== false && (
       <Box
         component="a"
-        href="#story"
-        aria-label="Scroll to our story"
+        href={storyHidden ? "#day" : "#story"}
+        aria-label={storyHidden ? "Scroll to the wedding day" : "Scroll to our story"}
         sx={{
           position: "absolute",
           bottom: 26,
@@ -171,9 +175,11 @@ export default function Cover({
         }}
       >
         <MascotBadge size={46} mood="peek" />
-        {(cover.story_cue_label ?? "The story").trim() && (
+        {/* The owner's custom cue label likely names the story — swap it for a
+            neutral one when this guest doesn't get that section. */}
+        {(storyHidden ? "The day" : (cover.story_cue_label ?? "The story")).trim() && (
           <Box component="span" sx={{ fontSize: 12, letterSpacing: "0.2em", textTransform: "uppercase" }}>
-            {cover.story_cue_label ?? "The story"}
+            {storyHidden ? "The day" : (cover.story_cue_label ?? "The story")}
           </Box>
         )}
       </Box>

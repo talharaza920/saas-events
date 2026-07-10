@@ -199,10 +199,11 @@ class Guest(Base):
     # contacted) and a real RSVP reply. Set manually by the owner (per-row toggle,
     # bulk action, or the edit dialog) — distinct from `invited` ("on the guest list").
     invite_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    # Per-guest story-arc override. NULL/empty = this guest sees every `visible`
-    # arc (the default). A non-empty list = they see exactly these arc ids,
-    # ordered by the arcs' own sort_order. Targeting is by arc id ONLY — the
-    # invite_tier must never be the selector, so this never leaks the tier.
+    # Per-guest story-arc override. NULL = this guest sees every `visible` arc
+    # (the default). [] = the story section is HIDDEN for this guest entirely.
+    # A non-empty list = they see exactly these arc ids, ordered by the arcs'
+    # own sort_order. Targeting is by arc id ONLY — the invite_tier must never
+    # be the selector, so this never leaks the tier.
     story_arc_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     seed_meta: Mapped[dict] = mapped_column(JSON, default=dict)  # raw import row, prob tier, etc.
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

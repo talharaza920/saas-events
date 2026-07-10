@@ -200,6 +200,12 @@ there).
 5. Staging Supabase + Vercel preview envs; PITR/backups on from first real user.
 
 ## Decisions log
+- **2026-07-10 (RT):** per-guest story hiding — `guests.story_arc_ids` became a
+  tri-state (null = all visible arcs / [] = story hidden for that guest /
+  ids = only those); invite payload gained `show_story`; guest dialog's
+  "Story visibility" control replaces the old >1-arc-only override select.
+  Verified visually via headless-Chrome script (16 checks incl. no dead
+  #story anchors, cover cue retargets to #day).
 - **2026-07-09:** all phases built & tested locally first (RT: provision
   Supabase/Vercel later); email = dev outbox until a provider exists; dev
   token composite form for local multi-user; authz status-code contract

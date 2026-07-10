@@ -1,8 +1,9 @@
-"""Per-invitee story-arc targeting (Phase 3).
+"""Per-invitee story-arc targeting (Phase 3) + per-guest story hiding.
 
-Verifies `tenancy.visible_arcs` + the admin guest override:
-  - no override → the guest sees every *visible* arc (ordered);
+Verifies `tenancy.visible_arcs` + the admin guest override (tri-state):
+  - no override (NULL) → the guest sees every *visible* arc (ordered);
   - an override → exactly the assigned arcs (even ones otherwise hidden);
+  - [] → the story is hidden for this guest (`show_story: false` on the invite);
   - a cross-tenant / unknown arc id is rejected and never resolves;
   - the tier is never the selector and never crosses the wire.
 
@@ -154,18 +155,68 @@ def test_admin_override_round_trip_and_no_tier_leak(client, db_session, wedding)
     # The invite now surfaces only that arc — and never the tier.
     inv = client.get("/api/i/solo-x")
     assert inv.status_code == 200
-    arcs = inv.json()["story_arcs"]
-    assert [a["content"]["heading"] for a in arcs] == ["Arc one"]
+    body = inv.json()
+    assert [a["content"]["heading"] for a in body["story_arcs"]] == ["Arc one"]
+    assert body["show_story"] is True
     assert "tier" not in inv.text
     assert "story_arc_ids" not in inv.text  # the override itself never leaks either
 
-    # Clearing it ([] ) restores the default (both arcs).
+    # Clearing it (explicit null) restores the default (both arcs).
+    r = client.patch(
+        f"/api/w/alex-and-sam/admin/guests/{g.id}", headers=auth(), json={"story_arc_ids": None}
+    )
+    assert r.json()["story_arc_ids"] is None
+    inv = client.get("/api/i/solo-x").json()
+    assert len(inv["story_arcs"]) == 2 and inv["show_story"] is True
+
+
+def test_empty_override_hides_story_entirely(client, db_session, wedding):
+    _arc(db_session, wedding, title="Arc one")
+    g = _guest(db_session, wedding, slug="hide-g")
+
+    # [] = "no story for this guest" (distinct from null = default).
     r = client.patch(
         f"/api/w/alex-and-sam/admin/guests/{g.id}", headers=auth(), json={"story_arc_ids": []}
     )
+    assert r.status_code == 200
     assert r.json()["story_arc_ids"] == []
-    inv = client.get("/api/i/solo-x").json()
-    assert len(inv["story_arcs"]) == 2
+
+    inv = client.get("/api/i/hide-g").json()
+    assert inv["story_arcs"] == []
+    assert inv["show_story"] is False
+
+    # Omitting the field on a later PATCH leaves the hide in place.
+    r = client.patch(
+        f"/api/w/alex-and-sam/admin/guests/{g.id}", headers=auth(), json={"side": "Alex"}
+    )
+    assert r.json()["story_arc_ids"] == []
+
+
+def test_visible_arcs_hidden_override(db_session, wedding):
+    _arc(db_session, wedding, title="Arc one")
+    g = _guest(db_session, wedding, slug="hide-core", story_arc_ids=[])
+    assert visible_arcs(db_session, wedding, g) == []
+
+
+def test_arcless_wedding_keeps_legacy_story_fallback(client, db_session, wedding):
+    # No arc rows at all + no override: show_story stays True so the frontend
+    # can fall back to the legacy embedded content.story.
+    g = _guest(db_session, wedding, slug="legacy-g")
+    inv = client.get(f"/api/i/{g.slug}").json()
+    assert inv["story_arcs"] == []
+    assert inv["show_story"] is True
+
+
+def test_override_of_deleted_arc_hides_story(client, db_session, wedding):
+    # A targeted arc that was since deleted resolves to nothing — the page must
+    # hide the section rather than fall back to placeholder story copy.
+    arc = _arc(db_session, wedding, title="Doomed")
+    g = _guest(db_session, wedding, slug="stale-g", story_arc_ids=[str(arc.id)])
+    r = client.delete(f"/api/w/alex-and-sam/admin/story-arcs/{arc.id}", headers=auth())
+    assert r.status_code == 204
+    inv = client.get("/api/i/stale-g").json()
+    assert inv["story_arcs"] == []
+    assert inv["show_story"] is False
 
 
 def test_admin_rejects_unknown_arc(client, db_session, wedding):

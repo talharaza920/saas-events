@@ -123,10 +123,13 @@ sequential phases, each STOP-for-RT-verification:
    `DressCode.tsx` renders both swatch rows.
 3. **Multiple arcs + per-invitee targeting + carousel (DONE — pending RT check).**
    `guests.story_arc_ids` (nullable JSON, Alembic `c2d3e4f5a6b7`); `tenancy.visible_arcs`
-   honors it (null/empty = all `visible` arcs; override = exactly those ids, validated
-   to the wedding, in sort order). `StoryPanel` manages arcs (add/duplicate/visible-
-   toggle/reorder/delete, inline `ArcEditor`); `GuestFormDialog` has a story-arc
-   override multi-select (shown only with >1 arc); `Story.tsx` renders ≥2 arcs as a
+   honors it as a TRI-STATE (2026-07-10): null = all `visible` arcs; [] = the story is
+   hidden for this guest (`show_story: false` on the invite payload — the page skips
+   the section, its nav link and the cover's scroll cue); non-empty = exactly those
+   ids, validated to the wedding, in sort order. `StoryPanel` manages arcs
+   (add/duplicate/visible-toggle/reorder/delete, inline `ArcEditor`);
+   `GuestFormDialog` has a "Story visibility" control (All / No story / Only
+   specific arcs — the custom pick needs >1 arc); `Story.tsx` renders ≥2 arcs as a
    carousel. Targeting by arc id only — the tier is never the selector and the override
    never crosses the guest wire.
 4. **Brand mark + remaining white-label copy gaps (added 2026-06-10, RT-requested).**

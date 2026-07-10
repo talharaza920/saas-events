@@ -407,7 +407,14 @@ export default function GuestsPanel({
       expected_party_size:
         values.expected_party_size.trim() === "" ? null : Number(values.expected_party_size),
       invited: values.invited,
-      story_arc_ids: values.story_arc_ids,
+      // Tri-state override: null = default (all visible arcs), [] = hide the
+      // story for this guest, non-empty = only those arcs.
+      story_arc_ids:
+        values.story_mode === "all"
+          ? null
+          : values.story_mode === "none"
+            ? []
+            : values.story_arc_ids,
     };
     if (!editing) {
       await adminApi.createGuest(payload);

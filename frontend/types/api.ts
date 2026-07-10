@@ -1627,11 +1627,8 @@ export interface components {
             invite_sent: boolean;
             /** Expected Party Size */
             expected_party_size?: number | null;
-            /**
-             * Story Arc Ids
-             * @default []
-             */
-            story_arc_ids: string[];
+            /** Story Arc Ids */
+            story_arc_ids?: string[] | null;
             /** Rsvp Status */
             rsvp_status: string;
             /** Party Size */
@@ -1868,6 +1865,11 @@ export interface components {
              * @default true
              */
             rsvp_open: boolean;
+            /**
+             * Show Story
+             * @default true
+             */
+            show_story: boolean;
         };
         /**
          * LandingResponse

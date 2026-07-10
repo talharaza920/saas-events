@@ -189,6 +189,10 @@ class InviteResponse(BaseModel):
     # still renders, but submits are refused (the form should read-only itself).
     # Just a boolean: the deadline date itself is the owner's business.
     rsvp_open: bool = True
+    # False when the owner hid the story for THIS guest (or their targeted arcs
+    # no longer exist) — the page must skip the story section instead of falling
+    # back to the legacy content.story block. Never explains why (no tier leak).
+    show_story: bool = True
 
 
 # --- RSVP submission -------------------------------------------------------
@@ -385,8 +389,9 @@ class GuestAdmin(BaseModel):
     # Owner's pre-RSVP headcount estimate (incl. the invitee). Admin-only; compared
     # against the real `party_size` below as RSVPs come in. Null = no estimate yet.
     expected_party_size: int | None = None
-    # Per-guest story-arc override (arc ids). Empty = sees every visible arc.
-    story_arc_ids: list[UUID] = []
+    # Per-guest story-arc override. null = default (every visible arc);
+    # [] = the story section is hidden for this guest; non-empty = only these.
+    story_arc_ids: list[UUID] | None = None
     rsvp_status: str  # attending | declined | invited | pending
     party_size: int  # 0 if not attending/pending; else 1 + companions
     notes: str | None = None
@@ -423,7 +428,8 @@ class GuestCreate(BaseModel):
     invited: bool = True
     # Owner's pre-RSVP headcount estimate (incl. the invitee). Admin-only.
     expected_party_size: int | None = Field(default=None, ge=0, le=50)
-    # Story-arc override; ids are validated against the wedding's arcs server-side.
+    # Story-arc override: null = default (all visible arcs), [] = hide the story
+    # for this guest, ids (validated server-side) = only those arcs.
     story_arc_ids: list[UUID] | None = None
 
 
@@ -448,7 +454,8 @@ class GuestUpdate(BaseModel):
     # Owner's pre-RSVP headcount estimate (incl. the invitee). Admin-only; omit to
     # leave unchanged, send null to clear the estimate.
     expected_party_size: int | None = Field(default=None, ge=0, le=50)
-    # Story-arc override; null leaves it unchanged, [] clears it (back to default).
+    # Story-arc override: OMIT to leave unchanged; explicit null clears it (back
+    # to all visible arcs); [] hides the story for this guest; ids = only those.
     story_arc_ids: list[UUID] | None = None
 
 

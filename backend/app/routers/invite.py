@@ -212,6 +212,11 @@ def get_invite(guest_slug: str, db: Session = Depends(get_db)) -> InviteResponse
         ],
         rsvp=_serialize_rsvp(existing) if existing else None,
         rsvp_open=rsvp_open(wedding),
+        # Hide the story section when this guest has an override that resolves to
+        # nothing — an explicit [] ("no story"), or targeted arcs that were since
+        # deleted. Without an override, an arc-less wedding keeps its legacy
+        # content.story fallback, so the flag stays True there.
+        show_story=guest.story_arc_ids is None or len(arcs) > 0,
     )
 
 

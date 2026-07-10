@@ -31,7 +31,8 @@ import ArcEditor from "./ArcEditor";
  * The "Story" tab. Manages the wedding's story arcs: add / duplicate / show-hide
  * / reorder / delete, with each arc's content edited inline via {@link ArcEditor}.
  * Guests see every *visible* arc by default; the Guests tab can override which
- * arc(s) a specific invitee sees (targeted by arc id — never the tier).
+ * arc(s) a specific invitee sees — or hide the story for them entirely
+ * (targeted by arc id — never the tier).
  */
 export default function StoryPanel({
   arcs,
@@ -122,9 +123,9 @@ export default function StoryPanel({
         <Box>
           <Typography variant="h6">Story arcs</Typography>
           <Typography variant="body2" color="text.secondary">
-            {arcs.length > 1
-              ? "Guests see every visible arc. To show specific arcs to specific people, edit a guest in the Guests tab and use its Story arc override."
-              : "Guests see every visible arc. Add a second arc to unlock per-guest targeting (a Story arc override appears when editing a guest)."}
+            Guests see every visible arc by default. To show specific arcs to a
+            specific guest — or hide the story for them — edit the guest in the
+            Guests tab (Story visibility).
           </Typography>
         </Box>
         <Button startIcon={<AddIcon />} variant="contained" onClick={addArc} disabled={busy}>

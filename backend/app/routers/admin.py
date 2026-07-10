@@ -137,10 +137,13 @@ def editable_wedding(ctx: WeddingCtx = Depends(editor_ctx)) -> Wedding:
     return ctx.wedding
 
 
-def _validated_arc_ids(db: Session, wedding: Wedding, arc_ids) -> list[str]:
-    """Normalize a guest's story-arc override to id strings, rejecting any arc that
-    doesn't belong to this wedding (blocks cross-tenant / bogus targeting). Empty
-    → []; the caller stores that as NULL so the guest falls back to all visible arcs."""
+def _validated_arc_ids(db: Session, wedding: Wedding, arc_ids) -> list[str] | None:
+    """Normalize a guest's story-arc override, rejecting any arc that doesn't
+    belong to this wedding (blocks cross-tenant / bogus targeting). Tri-state:
+    None = no override (all visible arcs), [] = hide the story entirely for
+    this guest, non-empty = exactly these arcs."""
+    if arc_ids is None:
+        return None
     if not arc_ids:
         return []
     owned = {
@@ -233,7 +236,7 @@ def _guest_admin(guest: Guest, qmeta: dict | None = None, content: dict | None =
         invited=guest.invited,
         invite_sent=guest.invite_sent,
         expected_party_size=guest.expected_party_size,
-        story_arc_ids=guest.story_arc_ids or [],
+        story_arc_ids=guest.story_arc_ids,
         rsvp_status=status_str,
         party_size=party,
         notes=notes,
@@ -402,7 +405,7 @@ def create_guest(
         invite_tier=tier,
         invited=payload.invited,
         expected_party_size=payload.expected_party_size,
-        story_arc_ids=_validated_arc_ids(db, wedding, payload.story_arc_ids) or None,
+        story_arc_ids=_validated_arc_ids(db, wedding, payload.story_arc_ids),
         seed_meta={"source": "admin"},
     )
     db.add(guest)
@@ -452,10 +455,10 @@ def update_guest(
             setattr(guest, field, contacts.get(field))
             data.pop(field)
     if "story_arc_ids" in data:
-        # [] / null both clear the override (back to "all visible arcs"); stored
-        # as NULL. Non-empty is validated to this wedding's arcs.
-        ids = _validated_arc_ids(db, wedding, data.pop("story_arc_ids"))
-        guest.story_arc_ids = ids or None
+        # Tri-state override: null clears it (back to "all visible arcs"),
+        # [] hides the story for this guest, non-empty = exactly those arcs
+        # (validated to this wedding).
+        guest.story_arc_ids = _validated_arc_ids(db, wedding, data.pop("story_arc_ids"))
     if "party_members" in data:
         # Clamp the prefill party to the (possibly just-changed) tier; [] → NULL.
         guest.party_members = (
