@@ -22,7 +22,7 @@ Sentry are the remaining infrastructure work, deliberately deferred until RT
 creates those accounts. A full-codebase review (2026-07-09) found no
 cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
 and the four P0 items (N+1 eager loading, introspection cache, Resend email
-seam, guest-API rate limiting) are done. Suite: **292 pytest** (offline) +
+seam, guest-API rate limiting) are done. Suite: **303 pytest** (offline) +
 **20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs` against local dev
 servers); `tsc`/`eslint`/`next build` clean.
 
@@ -195,9 +195,22 @@ there).
   shared > code default; malformed/inactive rows fall back — never brick),
   allowlisted `string.Template.safe_substitute` rendering (injection-safe;
   tested with `${x.__class__}` payloads). Console editor UI still owed (8.4).
-- [ ] 8.1b Pipeline (transcribe → extract → resolve → draft → images →
-  ground): `ai_jobs` service + step advance, Gemini media seam
-  (`app/ai/media.py`), Places resolve, golden-set eval.
+- [x] **8.1b Pipeline core — DONE (local) 2026-07-11.** `app/ai/jobs.py`
+  state machine (create → advance-one-step → awaiting_review; cancel/fail/
+  expire all refund + sweep inputs), fixed step lists per kind (wizard:
+  transcribe→extract→resolve→draft→ground; story_arc; glyph),
+  `schemas.py` (bounded, extra=forbid step outputs — no free-text channel),
+  `credits.py` (flat per-kind cost, free-arc allowance, hold-is-charge until
+  Phase 6 settles against actual dollars), `media.py` (text passes through;
+  Gemini call stubbed behind ProviderError until a billing-enabled key
+  exists), `resolve.py` (Places text-search; no key → couple's own words,
+  never invented), `ai` platform-settings blob with `kill_switch`. Creation
+  gates: ai_enabled 403 · kill switch 503 · active-run 409 (friendly check +
+  DB index backstop) · credits 403 · cross-tenant inputs 404. Tests:
+  `tests/test_ai_pipeline.py`.
+- [ ] 8.1c deferred to infra/asset time: Gemini transcribe implementation
+  (needs billing-enabled key; confirm current model id then), Nano Banana
+  `images` fan-out step, `guests` kind, golden-set eval fixtures.
 - [ ] 8.3 Guardrails (SVG sanitiser, apply allowlist, kill switch/ceiling,
   reap-ai-jobs cron).
 - [ ] 8.4 API surface + wizard/review UI; wrong-tenant 404 + no-membership
@@ -208,7 +221,7 @@ there).
 
 ## Test & verification status (2026-07-10)
 
-- `pytest`: **292 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **303 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
@@ -219,7 +232,9 @@ there).
   additions: `test_ai_models.py` (one-active-job index, idempotency key,
   purge-vs-ledger, prompt composite key, AI entitlement defaults) and
   `test_ai_provider_port.py` (prompt resolution/rendering, fake + Anthropic
-  adapters, factory, pricing, ledger).
+  adapters, factory, pricing, ledger) and `test_ai_pipeline.py` (creation
+  gates, full wizard run to proposal, step replay, glyph, refusal/cancel/
+  expiry refunds).
 - Frontend: `tsc --noEmit`, `eslint .`, `next build` clean.
 - E2E smoke (`node scripts/smoke-e2e.mjs`, needs both dev servers +
   `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,

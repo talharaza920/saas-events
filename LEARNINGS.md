@@ -5,6 +5,20 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-11 — AI wizard 8.1b: pipeline gotchas
+**Order the friendly gates before the money math.** The one-active-job rule
+is enforced by the DB partial index, but with only that, a second create
+surfaced as 403 "out of credits" (the free-arc allowance was consumed by the
+active job) instead of 409 "already running". `create_job` now does a cheap
+active-run SELECT before `compute_hold`; the index stays the backstop that
+holds under concurrent instances. General rule: user-facing precondition
+checks in intent order, DB constraints as the race net.
+
+**JSON columns don't track in-place mutation.** Every step builds
+`state = dict(job.state or {})`, mutates the copy, and REASSIGNS `job.state`
+— editing the dict in place silently persists nothing (same SQLAlchemy trap
+as `wedding.settings`).
+
 ## 2026-07-10 — AI wizard 8.1: provider-port decisions
 **Adapters never leak SDK exception types.** The pipeline has exactly one
 failure path (job → failed, hold refunded), so `app/ai/types.py` defines

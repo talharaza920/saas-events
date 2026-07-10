@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     ai_text_model: str = "claude-opus-4-8"
     ai_text_effort: str = "high"  # low | medium | high
     anthropic_api_key: str = ""
+    # Media understanding (app/ai/media.py) — must be a BILLING-ENABLED
+    # AI Studio project (free-tier input may train on guest PII). Empty =
+    # media inputs refused; pasted text still works.
+    gemini_api_key: str = ""
+    # Venue resolution (app/ai/resolve.py). Empty = venues stay as the
+    # couple's own words (degraded, never invented).
+    google_places_api_key: str = ""
 
     # LOCAL-DEV ONLY: a static bearer token that stands in for a Supabase login
     # so /admin works on SQLite without Supabase Auth. Empty in production (then
