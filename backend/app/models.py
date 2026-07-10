@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -226,8 +227,9 @@ class Rsvp(Base):
     # The FIRST reply time (set once on insert). `updated_at` below tracks the latest
     # change — together they let the admin surface new vs recently-edited RSVPs.
     responded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Indexed: /responses lists most-recently-changed first (migration b8c9d0e1f2a3).
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
     )
     # Audit provenance (stamped via app/audit.py). `first_source` is where the very
     # first reply came from (never overwritten); `last_source` is the latest write.
@@ -363,6 +365,8 @@ class Wish(Base):
     """Guestbook message."""
 
     __tablename__ = "wishes"
+    # The public wall filters (wedding_id, approved) on every guest read.
+    __table_args__ = (Index("ix_wishes_wedding_approved", "wedding_id", "approved"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     wedding_id: Mapped[uuid.UUID] = mapped_column(
@@ -470,7 +474,10 @@ class AuditLog(Base):
     target_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Indexed: the console tails the log ORDER BY created_at DESC.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
 
 
 class PlatformSetting(Base):

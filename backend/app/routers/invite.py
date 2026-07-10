@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.answers import is_party_question, person_question_applies
@@ -40,6 +41,7 @@ from app.tenancy import (
     capabilities_for,
     clamp_party_members,
     resolve_guest,
+    rsvp_open,
     visible_arcs,
     visible_questions,
 )
@@ -209,6 +211,7 @@ def get_invite(guest_slug: str, db: Session = Depends(get_db)) -> InviteResponse
             for q in questions
         ],
         rsvp=_serialize_rsvp(existing) if existing else None,
+        rsvp_open=rsvp_open(wedding),
     )
 
 
@@ -224,6 +227,13 @@ def submit_rsvp(
     if resolved is None:
         raise HTTPException(status_code=404, detail="Invitation not found")
     wedding, guest = resolved
+
+    # Optional owner-set deadline (P2-18): after it, submits AND edits close.
+    # The owner can still record replies via the admin override.
+    if not rsvp_open(wedding):
+        raise HTTPException(
+            status_code=403, detail="The RSVP deadline for this event has passed"
+        )
 
     caps = capabilities_for(guest.invite_tier, wedding.content)
 
@@ -332,7 +342,16 @@ def submit_rsvp(
     # Audit: a guest's own submission via their signed link (no admin actor).
     stamp_rsvp(rsvp, SOURCE_GUEST)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Double-submit race: two first-RSVPs for the same guest hit the unique
+        # rsvps.guest_id together. The other one won — a clean retry becomes an
+        # update, so tell the client to resubmit rather than 500ing.
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="Your RSVP was just saved — please try again"
+        )
     return RsvpConfirmation(ok=True, attending=payload.attending, companion_count=len(companions))
 
 

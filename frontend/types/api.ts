@@ -704,8 +704,10 @@ export interface paths {
         head?: never;
         /**
          * Update Wedding Settings
-         * @description Owner-only per-wedding admin settings (currently: whether co-admins may
-         *     publish). Merged, not replaced; returns the effective settings blob.
+         * @description Owner-only per-wedding admin settings (co-admin publish rights, phone
+         *     region, RSVP deadline). Merged, not replaced: omitted/null fields are
+         *     untouched, an empty string clears that setting back to its default. Returns
+         *     the effective settings blob.
          */
         patch: operations["update_wedding_settings_api_w__wedding_slug__admin_settings_patch"];
         trace?: never;
@@ -1861,6 +1863,11 @@ export interface components {
              */
             story_arcs: components["schemas"]["StoryArcPublic"][];
             rsvp?: components["schemas"]["RsvpPublic"] | null;
+            /**
+             * Rsvp Open
+             * @default true
+             */
+            rsvp_open: boolean;
         };
         /**
          * LandingResponse
@@ -2684,12 +2691,17 @@ export interface components {
         /**
          * WeddingSettingsUpdate
          * @description Owner-editable per-wedding admin settings (not guest content).
+         *
+         *     PATCH semantics: omitted/null fields are untouched; an empty string CLEARS a
+         *     string setting back to its default (the endpoint drops the key).
          */
         WeddingSettingsUpdate: {
             /** Admins Can Publish */
             admins_can_publish?: boolean | null;
             /** Phone Region */
             phone_region?: string | null;
+            /** Rsvp Deadline */
+            rsvp_deadline?: string | null;
         };
         /**
          * WishAdmin

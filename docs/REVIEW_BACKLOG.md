@@ -105,35 +105,67 @@ handful of correctness edges.
 
 ## P2 — hardening
 
-- [ ] **11. Check-then-insert races surface as 500s** — **S** — wedding-slug
+- [x] **11. Check-then-insert races surface as 500s** — **S** — wedding-slug
   create, RSVP upsert (unique `guest_id`), guest-slug mint, `check_limit`
   TOCTOU. Catch `IntegrityError` → 409 (or retry for slug mint).
-- [ ] **12. Invite-accept can 500 for an existing member** — **S** —
+  _Done 2026-07-10: targeted catches with specific messages on wedding create
+  (wraps the factory's flush), guest RSVP double-submit, guest create, member
+  invite, import commit; app-wide `IntegrityError → 409` backstop handler in
+  `main.py` for autoflush-time races. `check_limit` TOCTOU accepted as-is: it
+  can over-admit by a request or two but never 500s (no constraint to trip)._
+- [x] **12. Invite-accept can 500 for an existing member** — **S** —
   `invite_member` matches by `invited_email` only; a member whose sign-in email
   changed can be re-invited under the new email, and acceptance then violates
   `uq_member_wedding_user`. Guard in `accept_invite` (existing active
   membership for `user.sub` → clean 409/merge).
-- [ ] **13. Unbounded JSON on content endpoints** — **S** —
+  _Done 2026-07-10: merge — the redundant invite is consumed (revoked) and the
+  response reports the EXISTING membership's role (an invite never grants a
+  second row or a role change); IntegrityError backstop → 409 for the
+  concurrent-accept race._
+- [x] **13. Unbounded JSON on content endpoints** — **S** —
   `ContentUpdate`/`StoryArcUpdate` accept arbitrary dicts; `_deep_merge`
   recurses on attacker-nested input (RecursionError → 500) and blob size is
   uncapped outside Vercel's body limit. Add max-depth/max-size validation
   (generous limits).
-- [ ] **14. Import row/file caps** — **S** — `/import` parses the whole upload
+  _Done 2026-07-10: `_check_json_bounds` in schemas.py (depth ≤ 16, ≤ 25k
+  nodes, ≤ 50k chars/string; depth checked before recursing) on
+  ContentUpdate's three blobs + StoryArcCreate/Update content. Since every
+  write is bounded, stored blobs stay ≤ the cap and `_deep_merge` (which
+  recurses along the patch) is safe._
+- [x] **14. Import row/file caps** — **S** — `/import` parses the whole upload
   before the guest-cap check bounds creates. Cap file size (~15 MB) and rows
   (~5,000) up front.
-- [ ] **15. `ensure_profile` commits on every request** — **S** — the auth
+  _Done 2026-07-10: 15 MB byte cap (413) before parsing; 5,000-row cap (422)
+  enforced DURING iteration in `_read_records` (an XLSX can decompress far
+  past its upload size)._
+- [x] **15. `ensure_profile` commits on every request** — **S** — the auth
   dependency writes/commits even on pure reads. Commit only when the profile
   row actually changed.
-- [ ] **16. Missing indexes** — **S** — `wishes(wedding_id, approved)` (public
+  _Verified 2026-07-10: already compliant (commits only on create /
+  email-drift); pinned with a commit-counting regression test._
+- [x] **16. Missing indexes** — **S** — `wishes(wedding_id, approved)` (public
   wall), `audit_log(created_at)` (tail sort), `rsvps(updated_at)`
   (`/responses` sort). Additive migration.
-- [ ] **17. Naive/aware datetime juggling** — **M** — `_naive_utc`, the
+  _Done 2026-07-10: migration `b8c9d0e1f2a3` + matching model-side indexes
+  (so `create_all` schemas agree). Verified in isolation on scratch SQLite
+  (see LEARNINGS: the pre-fork initial migration itself is Postgres-only)._
+- [x] **17. Naive/aware datetime juggling** — **M** — `_naive_utc`, the
   try/except in `platform.stats`, tzinfo branching in `accept_invite` /
   `_plan_assignment`. Standardize on tz-aware UTC + one helper; keep
   SQLite/Postgres both under test. Batch with other work.
-- [ ] **18. RSVPs editable forever** — product decision — **S** — no deadline
+  _Done 2026-07-10: `app/timeutil.py` (`utcnow`/`as_utc`/`db_bind_utc`);
+  replaced both `_naive_utc` copies (admin, approval), purge's `_as_utc`, the
+  tzinfo branches in `accept_invite`/`_plan_assignment`, and platform.stats'
+  blanket try/except (now an explicit dialect-aware bind)._
+- [x] **18. RSVPs editable forever** — product decision — **S** — no deadline
   or lock after the event. Probably an optional per-wedding "RSVP deadline".
   Decide, then implement.
+  _Done 2026-07-10 (decision: optional, off by default): owner sets
+  `settings.rsvp_deadline` (ISO date via PATCH /settings, "" clears; also
+  added ""-clears for phone_region). Inclusive, UTC end-of-day; after it the
+  guest GET still renders (`rsvp_open: false` in InviteResponse) but RSVP
+  POSTs 403. Admin override stays available; a garbage stored value fails
+  open. Owner UI knob owed with the settings panel (same as phone_region)._
 
 ## P3 — later / deliberate deferrals
 

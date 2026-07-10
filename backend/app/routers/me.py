@@ -9,15 +9,15 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.audit_log import record
 from app.auth import AuthedUser, get_current_user
-from app.authz import ensure_profile, is_platform_admin
+from app.authz import active_membership, ensure_profile, is_platform_admin
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.entitlements import DEFAULT_ENTITLEMENTS
@@ -38,6 +38,7 @@ from app.schemas import (
     WeddingCreated,
 )
 from app.slugs import slug_error, suggest_slug
+from app.timeutil import as_utc, utcnow
 from app.wedding_factory import create_wedding
 
 router = APIRouter(prefix="/api", tags=["me"])
@@ -158,19 +159,26 @@ def create_wedding_endpoint(
             detail="You've reached the number of weddings your account allows — contact us",
         )
 
-    wedding = create_wedding(
-        db,
-        slug=slug,
-        couple_names=payload.couple_names.strip(),
-        creator=user,
-        event_overrides={
-            "venue": payload.venue,
-            "date_iso": payload.date_iso,
-            "date_display": payload.date_display,
-        },
-    )
-    record(db, "wedding.create", user=user, wedding=wedding, detail={"slug": slug})
-    db.commit()
+    try:
+        wedding = create_wedding(
+            db,
+            slug=slug,
+            couple_names=payload.couple_names.strip(),
+            creator=user,
+            event_overrides={
+                "venue": payload.venue,
+                "date_iso": payload.date_iso,
+                "date_display": payload.date_display,
+            },
+        )
+        record(db, "wedding.create", user=user, wedding=wedding, detail={"slug": slug})
+        db.commit()
+    except IntegrityError:
+        # Check-then-insert race: another request claimed the slug between our
+        # availability check and this insert (unique weddings.slug). The factory
+        # flushes, so the constraint can fire before the commit.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="That address is already taken")
     return WeddingCreated(
         wedding_id=wedding.id,
         slug=wedding.slug,
@@ -200,13 +208,8 @@ def accept_invite(
     invalid = HTTPException(status_code=404, detail="This invite link is invalid or has expired")
     if member is None:
         raise invalid
-    if member.invite_expires_at is not None:
-        expires = member.invite_expires_at
-        now = datetime.now(timezone.utc)
-        if expires.tzinfo is None:
-            now = now.replace(tzinfo=None)
-        if expires < now:
-            raise invalid
+    if member.invite_expires_at is not None and as_utc(member.invite_expires_at) < utcnow():
+        raise invalid
     if (member.invited_email or "").lower() != user.email.lower():
         # Same shape as "not found" — don't confirm the invite exists to the
         # wrong account.
@@ -216,6 +219,27 @@ def accept_invite(
     if wedding is None or wedding.status == WeddingStatus.ARCHIVED:
         raise invalid
 
+    # Already an active member under another row (e.g. re-invited after a sign-in
+    # email change)? Activating this invite would violate uq_member_wedding_user
+    # and 500. Consume the redundant invite and report their EXISTING membership
+    # instead — the invite never grants a second row or a role change.
+    existing = active_membership(db, wedding.id, user.sub)
+    if existing is not None and existing.id != member.id:
+        member.status = MemberStatus.revoked
+        member.invite_token_hash = None
+        member.invite_expires_at = None
+        record(
+            db, "member.accept", user=user, wedding=wedding,
+            target_type="member", target_id=member.id, detail={"merged": True},
+        )
+        db.commit()
+        return InviteAccepted(
+            wedding_id=wedding.id,
+            wedding_slug=wedding.slug,
+            couple_names=wedding.couple_names,
+            role=existing.role.value,
+        )
+
     member.user_id = user.sub
     member.status = MemberStatus.active
     member.invite_token_hash = None
@@ -224,7 +248,15 @@ def accept_invite(
         db, "member.accept", user=user, wedding=wedding,
         target_type="member", target_id=member.id,
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Race backstop: a concurrent accept created the membership between the
+        # guard above and this commit.
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="You're already a member of this wedding"
+        )
     return InviteAccepted(
         wedding_id=wedding.id,
         wedding_slug=wedding.slug,

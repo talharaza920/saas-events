@@ -15,6 +15,49 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+# --- Free-form JSON bounds ---------------------------------------------------
+# The owner-editable JSON blobs (content / event_details / theme_tokens / story
+# arc content) are open dicts by design, but unbounded input lets a hostile
+# client nest thousands of levels (RecursionError in _deep_merge → 500) or stuff
+# megabytes into one PATCH. Generous ceilings — far above anything the editor
+# produces — enforced at the schema edge so every handler gets bounded input.
+_JSON_MAX_DEPTH = 16
+_JSON_MAX_NODES = 25_000  # containers + leaves, whole blob
+_JSON_MAX_STR = 50_000  # chars per string leaf (a long story beat is ~1k)
+
+
+def _check_json_bounds(value: Any) -> Any:
+    """Reject a JSON blob that is too deep, too big, or has huge string leaves.
+    Depth is checked BEFORE recursing, so this walker itself can't blow the stack."""
+    nodes = 0
+
+    def walk(v: Any, depth: int) -> None:
+        nonlocal nodes
+        nodes += 1
+        if nodes > _JSON_MAX_NODES:
+            raise ValueError("This content is too large")
+        if depth > _JSON_MAX_DEPTH:
+            raise ValueError("This content is nested too deeply")
+        if isinstance(v, dict):
+            for child in v.values():
+                walk(child, depth + 1)
+        elif isinstance(v, list):
+            for child in v:
+                walk(child, depth + 1)
+        elif isinstance(v, str) and len(v) > _JSON_MAX_STR:
+            raise ValueError("A text value in this content is too long")
+
+    if value is not None:
+        walk(value, 1)
+    return value
+
+
+def _bounded_json(*fields: str):
+    """A reusable pydantic validator applying `_check_json_bounds` to `fields`.
+    (Same pattern as `_no_duplicate_questions`: a plain one-arg callable.)"""
+    return field_validator(*fields)(_check_json_bounds)
+
+
 # --- Wedding (public, tenant content) -------------------------------------
 class WeddingPublic(BaseModel):
     """The themeable, data-driven content for one wedding's invite."""
@@ -142,6 +185,10 @@ class InviteResponse(BaseModel):
     # narrows this per-guest. Empty falls back to the legacy `content.story`.
     story_arcs: list[StoryArcPublic] = []
     rsvp: RsvpPublic | None = None
+    # False once the wedding's optional RSVP deadline has passed — the invite
+    # still renders, but submits are refused (the form should read-only itself).
+    # Just a boolean: the deadline date itself is the owner's business.
+    rsvp_open: bool = True
 
 
 # --- RSVP submission -------------------------------------------------------
@@ -692,6 +739,8 @@ class ContentUpdate(BaseModel):
     content: dict[str, Any] | None = None
     theme_tokens: dict[str, Any] | None = None
 
+    _bounds = _bounded_json("event_details", "content", "theme_tokens")
+
 
 # --- Story arcs (owner CRUD) ----------------------------------------------
 class StoryArcAdmin(BaseModel):
@@ -709,6 +758,8 @@ class StoryArcCreate(BaseModel):
     sort_order: int = 0
     content: dict[str, Any] = Field(default_factory=dict)
 
+    _bounds = _bounded_json("content")
+
 
 class StoryArcUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -716,6 +767,8 @@ class StoryArcUpdate(BaseModel):
     visible: bool | None = None
     sort_order: int | None = None
     content: dict[str, Any] | None = None
+
+    _bounds = _bounded_json("content")
 
 
 class UploadResult(BaseModel):
@@ -821,13 +874,21 @@ class PublishUpdate(BaseModel):
 
 
 class WeddingSettingsUpdate(BaseModel):
-    """Owner-editable per-wedding admin settings (not guest content)."""
+    """Owner-editable per-wedding admin settings (not guest content).
+
+    PATCH semantics: omitted/null fields are untouched; an empty string CLEARS a
+    string setting back to its default (the endpoint drops the key).
+    """
 
     model_config = ConfigDict(extra="forbid")
     admins_can_publish: bool | None = None
     # ISO 3166-1 alpha-2 region for interpreting guests' national-format phone
     # numbers (e.g. "US", "GB"). Unset = platform default (validation.DEFAULT_REGION).
     phone_region: str | None = None
+    # Last day (ISO YYYY-MM-DD, inclusive, UTC) guests may submit or edit RSVPs.
+    # Unset = RSVPs stay open indefinitely. The invite page still renders after
+    # the deadline — only the RSVP write closes.
+    rsvp_deadline: str | None = None
 
     @field_validator("phone_region")
     @classmethod
@@ -837,9 +898,24 @@ class WeddingSettingsUpdate(BaseModel):
         from app.validation import is_supported_region
 
         code = v.strip().upper()
+        if not code:
+            return ""  # clear
         if not is_supported_region(code):
             raise ValueError("phone_region must be a supported two-letter country code")
         return code
+
+    @field_validator("rsvp_deadline")
+    @classmethod
+    def _valid_deadline(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        text = v.strip()
+        if not text:
+            return ""  # clear
+        try:
+            return date.fromisoformat(text).isoformat()
+        except ValueError:
+            raise ValueError("rsvp_deadline must be a date like 2027-06-01")
 
 
 # --- Members (Phase 3 team management) ---------------------------------------

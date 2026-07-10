@@ -13,11 +13,14 @@ live here:
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Guest, InviteTier, Question, QuestionVisibility, StoryArc, Wedding
 from app.schemas import Capabilities
+from app.timeutil import utcnow
 
 # Fixed companion allowance for the lower tiers (solo / +1). plus_family's caps are
 # owner-configurable per wedding (see capabilities_for / family_party_caps), so it is
@@ -107,6 +110,21 @@ def clamp_party_members(members, tier: InviteTier, content=None) -> list[dict]:
             continue
         out.append({"kind": kind, "name": str(name).strip()})
     return out
+
+
+def rsvp_open(wedding: Wedding) -> bool:
+    """Whether guests may still submit/edit RSVPs. The owner's optional
+    `settings["rsvp_deadline"]` (ISO date, validated on write) is INCLUSIVE —
+    RSVPs close at the end of that day, UTC. Unset/garbage = open (never lock a
+    wedding's guests out over a bad blob)."""
+    raw = (wedding.settings or {}).get("rsvp_deadline")
+    if not raw:
+        return True
+    try:
+        deadline = date.fromisoformat(str(raw))
+    except ValueError:
+        return True
+    return utcnow().date() <= deadline
 
 
 def resolve_guest(db: Session, guest_slug: str) -> tuple[Wedding, Guest] | None:

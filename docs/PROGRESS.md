@@ -4,8 +4,9 @@ The resumable source of truth for platform work. Phases are defined in
 `SAAS_PLAN.md`. The predecessor build's milestone history (M1–M14) lives in
 that private repo, not here.
 
-_Last updated: 2026-07-10 (Phases 1–5 built & tested locally; review P0 and
-ALL P1 items landed — see `REVIEW_BACKLOG.md`; P2 is next)._
+_Last updated: 2026-07-10 (Phases 1–5 built & tested locally; review P0, P1
+AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
+deferrals)._
 
 ## Where things stand (one paragraph)
 
@@ -150,18 +151,32 @@ there).
 - [x] P1-7 storage metering (2026-07-10): `storage_bytes_used` counter
   (migration `a7b8c9d0e1f2`) gates `/upload` against `max_storage_mb`;
   reconcile cron (`app/usage.py`) corrects drift against the bucket.
-- [ ] P1 complete — next: P2 items top-down, see `REVIEW_BACKLOG.md`.
+- [x] **P2 hardening — ALL DONE 2026-07-10** (items 11–18, details in
+  `REVIEW_BACKLOG.md`): check-then-insert races → 409 (targeted catches + an
+  app-wide `IntegrityError` backstop handler); invite-accept merges cleanly
+  for an existing member; content/story-arc JSON bounded (depth/nodes/string
+  caps in schemas); import caps (15 MB / 5,000 rows, enforced during parse);
+  `ensure_profile` commit discipline verified + pinned; hot-path indexes
+  (migration `b8c9d0e1f2a3`: wishes wall, audit tail, responses sort);
+  tz-aware UTC standardized in `app/timeutil.py`; optional per-wedding
+  **RSVP deadline** (`settings.rsvp_deadline`, guest POST 403 after it,
+  `rsvp_open` flag in the invite payload; owner UI knob owed with the
+  settings panel).
+- [ ] Remaining review items are P3 (deliberate deferrals — revisit when the
+  triggering condition appears, see `REVIEW_BACKLOG.md`).
 
 ## Phase 6 (billing) / Phase 7 (growth) — not started (by design)
 
-## Test & verification status (2026-07-09)
+## Test & verification status (2026-07-10)
 
-- `pytest`: **253 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **268 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
   Review-P0 additions: query-count guards (`test_query_efficiency.py`),
-  introspection cache, rate limiting, emailer seam.
+  introspection cache, rate limiting, emailer seam. Review-P2 additions:
+  `test_p2_hardening.py` (races → 409, invite merge, JSON bounds, import
+  caps, profile commit discipline, tz helpers, RSVP deadline).
 - Frontend: `tsc --noEmit`, `eslint .`, `next build` clean.
 - E2E smoke (`node scripts/smoke-e2e.mjs`, needs both dev servers +
   `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,

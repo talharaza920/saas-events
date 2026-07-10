@@ -15,7 +15,7 @@ Phase 2, plans & entitlements with Phase 5).
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -35,6 +35,7 @@ from app.db import get_db
 from app.emailer import send_email
 from app.entitlements import effective_entitlements
 from app.purge import purge_archived_weddings
+from app.timeutil import db_bind_utc, utcnow
 from app.models import (
     AuditLog,
     Guest,
@@ -465,19 +466,14 @@ def stats(db: Session = Depends(get_db)) -> PlatformStats:
         select(Wedding.status, func.count()).group_by(Wedding.status)
     ):
         by_status[status_value] = count
-    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    week_ago_naive = week_ago.replace(tzinfo=None)
+    # Bound in the dialect's own form (naive on SQLite, aware on Postgres) so the
+    # comparison is exact on both — see app/timeutil.py.
+    week_ago = db_bind_utc(db, utcnow() - timedelta(days=7))
 
     def _count_since(model, column):
-        # SQLite stores naive datetimes; Postgres tz-aware — try aware, fall back.
-        try:
-            return db.execute(
-                select(func.count()).select_from(model).where(column >= week_ago)
-            ).scalar_one()
-        except Exception:
-            return db.execute(
-                select(func.count()).select_from(model).where(column >= week_ago_naive)
-            ).scalar_one()
+        return db.execute(
+            select(func.count()).select_from(model).where(column >= week_ago)
+        ).scalar_one()
 
     return PlatformStats(
         weddings_by_status=by_status,

@@ -6,10 +6,12 @@ question CRUD and responses land in M6.
 import logging
 import os
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -40,6 +42,18 @@ if not settings.is_production and not os.environ.get("VERCEL"):
         app.mount("/media", StaticFiles(directory=str(UPLOAD_DIR)), name="media")
     except OSError:
         pass  # read-only filesystem (serverless) — local media mount not available
+
+# Backstop for check-then-insert races (REVIEW_BACKLOG P2-11): hot paths catch
+# IntegrityError at their commit with a specific message, but SQLAlchemy can also
+# raise it at an autoflush mid-handler — surface those as a retryable 409, not a
+# 500. The session is discarded by get_db's close() afterwards.
+@app.exception_handler(IntegrityError)
+def _integrity_conflict(request: Request, exc: IntegrityError) -> JSONResponse:
+    logger.warning("integrity conflict on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=409, content={"detail": "That change conflicted — please try again"}
+    )
+
 
 app.add_middleware(
     CORSMiddleware,

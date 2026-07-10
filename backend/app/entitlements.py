@@ -7,13 +7,12 @@ from `/api/w/{slug}/admin/me` to gray out UI; the server is the source of truth.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Plan, Wedding, WeddingPlan
+from app.timeutil import as_utc, utcnow
 
 # Baseline when no plan exists at all (fresh platform, or plan deleted).
 # Generous enough not to get in the way of a self-hosted/local install.
@@ -60,11 +59,7 @@ def _plan_assignment(db: Session, wedding: Wedding) -> WeddingPlan | None:
     if wp is None:
         return None
     if wp.valid_until is not None:
-        until = wp.valid_until
-        now = datetime.now(timezone.utc)
-        if until.tzinfo is None:
-            now = now.replace(tzinfo=None)
-        if until < now:  # expired assignment → fall back to the default plan
+        if as_utc(wp.valid_until) < utcnow():  # expired assignment → default plan
             return None
     return wp
 

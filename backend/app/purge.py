@@ -18,7 +18,7 @@ GDPR-style deletion requests: archive, then purge.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -27,13 +27,9 @@ from app.audit_log import record
 from app.config import Settings
 from app.models import AuditLog, Wedding, WeddingPlan, WeddingStatus
 from app.storage import delete_wedding_media
+from app.timeutil import as_utc, utcnow
 
 PURGE_AFTER_DAYS = 30
-
-
-def _as_utc(dt: datetime) -> datetime:
-    """Normalize DB datetimes (naive on SQLite, aware on Postgres) to aware UTC."""
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
 def purge_archived_weddings(
@@ -42,7 +38,7 @@ def purge_archived_weddings(
     """Hard-delete every wedding archived more than PURGE_AFTER_DAYS ago.
     Returns a summary entry per purged wedding (also written to the audit log).
     Commits once at the end."""
-    now = now or datetime.now(timezone.utc)
+    now = now or utcnow()
     cutoff = now - timedelta(days=PURGE_AFTER_DAYS)
 
     # Cheap status filter in SQL; the timestamp compare happens in Python so the
@@ -52,14 +48,14 @@ def purge_archived_weddings(
         .scalars()
         .all()
     )
-    due = [w for w in archived if w.archived_at is not None and _as_utc(w.archived_at) <= cutoff]
+    due = [w for w in archived if w.archived_at is not None and as_utc(w.archived_at) <= cutoff]
 
     purged: list[dict] = []
     for wedding in due:
         summary = {
             "wedding_id": str(wedding.id),
             "slug": wedding.slug,
-            "archived_at": _as_utc(wedding.archived_at).isoformat(),
+            "archived_at": as_utc(wedding.archived_at).isoformat(),
         }
         delete_wedding_media(settings, wedding.slug)
         # Keep the trail, lose the pointer (Postgres does this via SET NULL; done

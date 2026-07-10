@@ -9,12 +9,12 @@ something was queued.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Guest, PlatformSetting, Profile, Wedding, WeddingMember
+from app.timeutil import as_utc, utcnow
 
 APPROVAL_KEY = "approval"
 
@@ -47,10 +47,6 @@ def set_approval_rules(db: Session, rules: dict) -> dict:
     else:
         row.value = rules
     return rules
-
-
-def _naive_utc(dt: datetime) -> datetime:
-    return dt if dt.tzinfo is None else dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _banned_hits(wedding: Wedding, banned: list[str]) -> list[str]:
@@ -102,9 +98,7 @@ def evaluate_auto_approval(
         ok = False
         detail = "creator account unknown"
         if creator is not None and creator.created_at is not None:
-            age_h = (
-                datetime.now(timezone.utc).replace(tzinfo=None) - _naive_utc(creator.created_at)
-            ).total_seconds() / 3600
+            age_h = (utcnow() - as_utc(creator.created_at)).total_seconds() / 3600
             ok = age_h >= min_age
             detail = None if ok else f"account is {age_h:.1f}h old (< {min_age}h)"
         trace.append({"rule": "account_age", "ok": ok, "detail": detail})

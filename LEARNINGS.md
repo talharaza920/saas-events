@@ -5,6 +5,21 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-10 — P2 hardening gotchas
+**`IntegrityError` fires at flush, not just commit.** Guarding `db.commit()`
+with try/except misses constraint violations raised by an explicit or
+auto-flush earlier in the handler (`create_wedding` flushes to get the id, the
+import loop flushes per row). Hot paths wrap the whole insert block for a
+specific 409 message; `app/main.py` adds an app-wide `IntegrityError → 409`
+exception handler as the backstop so no check-then-insert race can ever
+surface as a 500.
+
+**Bound free-form JSON at the schema edge, and check depth BEFORE recursing.**
+`_check_json_bounds` (schemas.py) rejects >16 deep / >25k nodes / >50k-char
+strings on every owner-editable blob. Because every write is bounded, the
+stored blob stays bounded too, which is what keeps `_deep_merge` (recursion
+follows the patch) safe — no need to re-validate on read.
+
 ## 2026-07-09 — Phases 1–5: identity/tenancy build gotchas
 **Server log lines must be ASCII.** A `print(f"[email → …]")` in the emailer
 500'd `submit-approval`/`approve` on the live server (Windows console =

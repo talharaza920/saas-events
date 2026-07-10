@@ -24,7 +24,7 @@ import csv
 import hashlib
 import io
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from uuid import UUID
 
 import openpyxl
@@ -33,6 +33,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app import export_import
@@ -68,6 +69,7 @@ from app.models import (
     Wish,
 )
 from app.tenancy import capabilities_for, clamp_party_members
+from app.timeutil import as_utc, utcnow
 from app.schemas import (
     AdminMe,
     LifecycleResult,
@@ -404,7 +406,13 @@ def create_guest(
         seed_meta={"source": "admin"},
     )
     db.add(guest)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # The 128-bit slug makes a mint collision astronomically rare, but a
+        # check-then-insert race must still surface as a retryable 409, not a 500.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Please try that again")
     db.refresh(guest)
     return _guest_admin(guest, _question_meta(db, wedding), wedding.content)
 
@@ -1031,17 +1039,10 @@ def list_responses(
 _CATEGORICAL_QTYPES = {"choice", "multi_choice", "yesno"}
 
 
-def _naive_utc(dt: datetime) -> datetime:
-    """Normalize a stored timestamp to naive-UTC for arithmetic. Postgres returns
-    tz-aware datetimes; SQLite (tests/local) returns naive — coerce both so window
-    comparisons never mix aware/naive."""
-    return dt if dt.tzinfo is None else dt.astimezone(timezone.utc).replace(tzinfo=None)
-
-
 def _reply_times(rsvps: list[Rsvp]) -> list[datetime]:
-    """First-reply timestamps (naive UTC), oldest first. One per RSVP; edits don't
-    add points (we use responded_at, not updated_at)."""
-    return sorted(_naive_utc(r.responded_at) for r in rsvps if r.responded_at)
+    """First-reply timestamps (tz-aware UTC), oldest first. One per RSVP; edits
+    don't add points (we use responded_at, not updated_at)."""
+    return sorted(as_utc(r.responded_at) for r in rsvps if r.responded_at)
 
 
 def _expected_for_guest(guest: Guest, content: dict | None = None) -> int:
@@ -1329,7 +1330,7 @@ def summary(
         status_people[_guest_status(g)] += _guest_people(g, wedding.content)
 
     # Momentum: new replies in the trailing 7 days vs the 7 before (by first reply).
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utcnow()
     wk1, wk2 = now - timedelta(days=7), now - timedelta(days=14)
     times = _reply_times(rsvps)
     replies_this_week = sum(1 for t in times if wk1 < t <= now)
@@ -1425,7 +1426,7 @@ def summary_timeline(
     if times:
         first = times[0].date()
         start = first - timedelta(days=first.weekday())  # Monday of the first reply's week
-        today = datetime.now(timezone.utc).date()
+        today = utcnow().date()
         end = today - timedelta(days=today.weekday())  # Monday of the current week
         cumulative = 0
         week = start
@@ -1598,14 +1599,31 @@ def template_xlsx(
     )
 
 
+# Import bounds (P2-14): checked before any parsing/creates, so a huge upload
+# can't be fully materialized in memory first. Row cap is enforced DURING
+# iteration — an XLSX can decompress to far more than its upload size.
+_IMPORT_MAX_BYTES = 15 * 1024 * 1024
+_IMPORT_MAX_ROWS = 5_000
+
+
+class ImportTooLarge(Exception):
+    def __init__(self) -> None:
+        super().__init__(
+            f"The file has too many rows (max {_IMPORT_MAX_ROWS:,}) — split it and import in parts"
+        )
+
+
 def _read_records(filename: str | None, data: bytes) -> list[dict]:
     """Parse an uploaded CSV/XLSX into header-keyed dicts, each tagged with its
-    1-based spreadsheet row (`__row__`) for error messages."""
+    1-based spreadsheet row (`__row__`) for error messages. Raises ImportTooLarge
+    past the row cap."""
     name = (filename or "").lower()
     rows: list[dict] = []
     if name.endswith(".csv"):
         reader = csv.DictReader(io.StringIO(data.decode("utf-8-sig")))
         for i, rec in enumerate(reader):
+            if len(rows) >= _IMPORT_MAX_ROWS:
+                raise ImportTooLarge()
             rec = {(k or "").strip(): v for k, v in rec.items()}
             rec["__row__"] = i + 2
             rows.append(rec)
@@ -1618,6 +1636,8 @@ def _read_records(filename: str | None, data: bytes) -> list[dict]:
         except StopIteration:
             return []
         for i, raw in enumerate(it):
+            if len(rows) >= _IMPORT_MAX_ROWS:
+                raise ImportTooLarge()
             rec = {header[j]: raw[j] for j in range(min(len(header), len(raw)))}
             rec["__row__"] = i + 2
             rows.append(rec)
@@ -1680,8 +1700,15 @@ async def import_guests(
     never silently widened. Admin-defined question columns ARE written back: when a
     row sets `Attending`, its companions + answers replace the stored RSVP."""
     data = await file.read()
+    if len(data) > _IMPORT_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"That file is too large (max {_IMPORT_MAX_BYTES // (1024 * 1024)} MB)",
+        )
     try:
         records = _read_records(file.filename, data)
+    except ImportTooLarge as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # malformed upload
         raise HTTPException(status_code=422, detail=f"Could not read the file: {exc}") from exc
 
@@ -1854,7 +1881,14 @@ async def import_guests(
         )
 
     if commit:
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # Slug-mint / RSVP-upsert race inside the batch — retryable, not a 500.
+            db.rollback()
+            raise HTTPException(
+                status_code=409, detail="The import hit a conflict — please try again"
+            )
 
     return ImportResult(
         committed=commit,
@@ -1946,12 +1980,16 @@ def update_wedding_settings(
     ctx: WeddingCtx = Depends(owner_ctx),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Owner-only per-wedding admin settings (currently: whether co-admins may
-    publish). Merged, not replaced; returns the effective settings blob."""
+    """Owner-only per-wedding admin settings (co-admin publish rights, phone
+    region, RSVP deadline). Merged, not replaced: omitted/null fields are
+    untouched, an empty string clears that setting back to its default. Returns
+    the effective settings blob."""
     wedding = ctx.wedding
     merged = dict(wedding.settings or {})
     for key, value in payload.model_dump(exclude_unset=True).items():
-        if value is not None:
+        if value == "":
+            merged.pop(key, None)
+        elif value is not None:
             merged[key] = value
     wedding.settings = merged
     record(db, "wedding.settings", user=ctx.user, wedding=wedding, detail=merged)
@@ -1970,7 +2008,7 @@ def archive_wedding(
     wedding = ctx.wedding
     wedding.status = WeddingStatus.ARCHIVED
     wedding.published = False
-    wedding.archived_at = datetime.now(timezone.utc)  # starts the purge clock
+    wedding.archived_at = utcnow()  # starts the purge clock
     record(db, "wedding.archive", user=ctx.user, wedding=wedding)
     db.commit()
     return _lifecycle(wedding)
@@ -2076,7 +2114,7 @@ def invite_member(
 
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    expires = datetime.now(timezone.utc) + _INVITE_TTL
+    expires = utcnow() + _INVITE_TTL
 
     if existing is None:
         member = WeddingMember(
@@ -2097,12 +2135,18 @@ def invite_member(
         member.invited_by = user.sub
         member.invite_token_hash = token_hash
         member.invite_expires_at = expires
-    db.flush()
-    record(
-        db, "member.invite", user=user, wedding=wedding,
-        target_type="member", target_id=member.id, detail={"email": email, "role": payload.role},
-    )
-    db.commit()
+    try:
+        db.flush()
+        record(
+            db, "member.invite", user=user, wedding=wedding,
+            target_type="member", target_id=member.id, detail={"email": email, "role": payload.role},
+        )
+        db.commit()
+    except IntegrityError:
+        # Concurrent invites of the same email race past the existence check into
+        # the unique (wedding_id, invited_email) constraint.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="That email has already been invited")
 
     accept_path = f"/invites/accept?token={token}"
     send_email(
