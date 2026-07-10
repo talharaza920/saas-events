@@ -152,6 +152,14 @@ class Wedding(Base):
     members: Mapped[list[WeddingMember]] = relationship(
         back_populates="wedding", cascade="all, delete-orphan"
     )
+    # AI wizard rows ride the same purge cascade as the rest of the tenant's
+    # PII. The usage ledger deliberately has NO cascade relationship — it
+    # survives a purge with `wedding_id` nulled, like the audit log.
+    ai_jobs: Mapped[list[AiJob]] = relationship(
+        back_populates="wedding", cascade="all, delete-orphan"
+    )
+    ai_inputs: Mapped[list[AiInput]] = relationship(cascade="all, delete-orphan")
+    ai_variants: Mapped[list[AiVariant]] = relationship(cascade="all, delete-orphan")
 
 
 class Guest(Base):
@@ -537,12 +545,227 @@ class WeddingPlan(Base):
     plan: Mapped[Plan] = relationship()
 
 
+# =========================================================================
+# AI creation wizard (AI_WIZARD_PLAN Phase 8) — jobs, inputs, ledger, variants,
+# prompts. The model proposes; code disposes: `proposal` is never auto-applied,
+# and nothing here stores or references an invite_tier.
+# =========================================================================
+class AiJobKind:
+    """What a job produces (plain strings — adding one needs no migration)."""
+
+    WIZARD = "wizard"
+    STORY_ARC = "story_arc"
+    GLYPH = "glyph"
+    GUESTS = "guests"
+    ALL = (WIZARD, STORY_ARC, GLYPH, GUESTS)
+
+
+class AiJobStatus:
+    """queued → running → awaiting_review → applied; or failed/cancelled/expired.
+
+    ACTIVE statuses are the ones the one-job-per-wedding partial unique index
+    counts; TERMINAL statuses release/settle the credit hold and let the input
+    sweeper run.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    AWAITING_REVIEW = "awaiting_review"
+    APPLIED = "applied"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    ACTIVE = (QUEUED, RUNNING)
+    TERMINAL = (APPLIED, FAILED, CANCELLED, EXPIRED)
+    ALL = (QUEUED, RUNNING, AWAITING_REVIEW, *TERMINAL)
+
+
+class AiJob(Base):
+    """One AI-wizard run. `state` is the opaque per-step working set; `proposal`
+    is the reviewable diff — written by the pipeline, applied only by a human
+    through the apply endpoint, never automatically."""
+
+    __tablename__ = "ai_jobs"
+    __table_args__ = (
+        # A retried POST with the same Idempotency-Key returns the same job
+        # instead of double-charging (NULL keys don't collide on either dialect).
+        UniqueConstraint("wedding_id", "idempotency_key", name="uq_ai_jobs_idempotency"),
+        # ONE queued/running job per wedding — enforced in the DB, not by an
+        # application check, so it holds under N concurrent serverless instances.
+        Index(
+            "uq_ai_jobs_one_active",
+            "wedding_id",
+            unique=True,
+            sqlite_where=text("status IN ('queued','running')"),
+            postgresql_where=text("status IN ('queued','running')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    wedding_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("weddings.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20))  # AiJobKind
+    status: Mapped[str] = mapped_column(String(20), default=AiJobStatus.QUEUED, index=True)
+    # Progress UI: which pipeline step the job is on out of how many.
+    step: Mapped[int] = mapped_column(Integer, default=0)
+    steps_total: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[dict] = mapped_column(JSON, default=dict)
+    proposal: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Credits held on start; settled against the ledger or refunded when the
+    # job reaches a TERMINAL status. A failed run never costs the couple.
+    credits_held: Mapped[int] = mapped_column(Integer, default=0)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Stuck `running` jobs past this are moved to `expired` (hold refunded) by
+    # the reap-ai-jobs cron.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    wedding: Mapped[Wedding] = relationship(back_populates="ai_jobs")
+    inputs: Mapped[list[AiInput]] = relationship(back_populates="job")
+    variants: Mapped[list[AiVariant]] = relationship(back_populates="job")
+
+
+class AiInput(Base):
+    """One raw submission (voice note, pasted text, photo, PDF). Uploaded before
+    the job exists (`job_id` set when a job claims it). Rows are deleted when
+    their job reaches a terminal state — `transcript` survives only if the
+    couple opted in — and the archived-wedding purge sweeps the rest by cascade."""
+
+    __tablename__ = "ai_inputs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    wedding_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("weddings.id", ondelete="CASCADE"), index=True
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ai_jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(10))  # text | image | audio | pdf
+    # Inline for pasted text; a Storage URL for uploaded media (never both).
+    text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    mime: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    # What the transcribe step derived (media → text) — the only form the text
+    # LLM ever sees.
+    transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    job: Mapped[AiJob | None] = relationship(back_populates="inputs")
+
+
+class AiUsageLedger(Base):
+    """Append-only, never updated (same discipline as `audit_log`) — one row per
+    provider call. Cost is priced per (provider, model) at write time and stored
+    as money; token counts are never comparable across providers so the dollar
+    figure is the durable fact. Survives a wedding purge with `wedding_id`
+    nulled, like the audit trail."""
+
+    __tablename__ = "ai_usage_ledger"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    wedding_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("weddings.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ai_jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(20))  # anthropic | openai | google
+    model: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(20))  # transcribe/extract/draft/ground/image
+    credits: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    images: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd_micros: Mapped[int] = mapped_column(BigInteger, default=0)
+    provider_request_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Indexed: the console's spend widgets tail/aggregate by time.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class AiVariant(Base):
+    """Regeneration history for one artifact (`arc.beat.2`, `arc.text`, `glyph`).
+    Regenerating appends a row and leaves the previous one intact — the couple
+    compares and `selected` marks the keeper. The generation columns make any
+    strange output reproducible from the row."""
+
+    __tablename__ = "ai_variants"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    wedding_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("weddings.id", ondelete="CASCADE"), index=True
+    )
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("ai_jobs.id", ondelete="CASCADE"), index=True
+    )
+    artifact: Mapped[str] = mapped_column(String(80))
+    content: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    selected: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Exactly what produced this variant.
+    provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    prompt_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    prompt_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seed: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # The couple's bounded, untrusted steering note ("less flowery") — user-turn
+    # data only, never concatenated into a system prompt.
+    steer: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    job: Mapped[AiJob] = relationship(back_populates="variants")
+
+
+class AiPrompt(Base):
+    """Platform-owned prompt override. Defaults ship in code
+    (`app/ai/prompts.py`); a DB row overrides them — a malformed or deleted row
+    falls back to the code default rather than bricking the feature (the same
+    stance as DEFAULT_ENTITLEMENTS). Only platform admins may write these:
+    a wedding owner with prompt access would control a system prompt shared
+    across tenants.
+
+    `provider` is '' for the shared fallback row and a provider name for a
+    provider-specific override (Postgres forbids NULL in a primary key, so the
+    plan's `provider = NULL` is spelled '' here).
+    """
+
+    __tablename__ = "ai_prompts"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20), primary_key=True, default="", server_default=text("''"))
+    version: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    template: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    effort: Mapped[str | None] = mapped_column(String(10), nullable=True)  # low|medium|high
+    max_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    json_schema: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 # All tenant tables (used by migrations to enable RLS uniformly).
-TENANT_TABLES = ["guests", "rsvps", "companions", "questions", "answers", "wishes", "story_arcs"]
+TENANT_TABLES = [
+    "guests", "rsvps", "companions", "questions", "answers", "wishes", "story_arcs",
+    # AI wizard (Phase 8) — every row carries wedding_id.
+    "ai_jobs", "ai_inputs", "ai_usage_ledger", "ai_variants",
+]
 # Platform-era tables (Phase 1+). RLS-enabled the same way — the backend is the
 # sole DB actor; the Supabase anon surface is denied everything.
 PLATFORM_TABLES = [
     "profiles", "wedding_members", "platform_admins", "audit_log",
     "platform_settings", "plans", "wedding_plans",
+    "ai_prompts",  # platform-owned (no wedding_id) — prompt overrides
 ]
 ALL_TABLES = ["weddings", *TENANT_TABLES, *PLATFORM_TABLES]

@@ -5,6 +5,26 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-10 — AI wizard 8.0: schema gotchas
+**Postgres forbids NULL in primary-key columns.** The plan's `ai_prompts`
+"(key, provider, version) PK with provider = NULL as the shared fallback"
+can't exist — a unique constraint would treat NULLs as distinct (dup fallback
+rows) and a PK rejects NULL outright. The fallback row uses `provider = ''`
+(NOT NULL, server_default `''`). Same trap applies to any future "nullable
+discriminator in a composite key" design.
+
+**Partial unique indexes work — and are testable — on SQLite.** The
+one-queued/running-job-per-wedding ceiling is
+`Index(..., unique=True, sqlite_where=..., postgresql_where=...)`; both
+dialects enforce it, so the DB-level concurrency guarantee is pinned by an
+offline test (`test_ai_models.py`) instead of being a Postgres-only hope.
+
+**Append-only money/audit tables must be excluded from the purge cascade.**
+`ai_usage_ledger` deliberately has NO `Wedding` relationship (ORM cascade
+would delete it with the tenant); purge nulls its `wedding_id`/`job_id`
+explicitly, mirroring the `audit_log` treatment, because SQLite dev runs
+don't enforce FK `SET NULL`.
+
 ## 2026-07-10 — P2 hardening gotchas
 **`IntegrityError` fires at flush, not just commit.** Guarding `db.commit()`
 with try/except misses constraint violations raised by an explicit or

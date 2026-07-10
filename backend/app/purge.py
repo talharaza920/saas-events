@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.audit_log import record
 from app.config import Settings
-from app.models import AuditLog, Wedding, WeddingPlan, WeddingStatus
+from app.models import AiUsageLedger, AuditLog, Wedding, WeddingPlan, WeddingStatus
 from app.storage import delete_wedding_media
 from app.timeutil import as_utc, utcnow
 
@@ -62,6 +62,12 @@ def purge_archived_weddings(
         # explicitly so SQLite behaves identically).
         db.execute(
             update(AuditLog).where(AuditLog.wedding_id == wedding.id).values(wedding_id=None)
+        )
+        # Same stance for the AI spend ledger: the money record outlives the tenant.
+        db.execute(
+            update(AiUsageLedger)
+            .where(AiUsageLedger.wedding_id == wedding.id)
+            .values(wedding_id=None, job_id=None)
         )
         wp = db.get(WeddingPlan, wedding.id)
         if wp is not None:

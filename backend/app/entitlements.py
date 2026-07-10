@@ -28,6 +28,16 @@ DEFAULT_ENTITLEMENTS: dict = {
     "custom_domain": False,  # future (Phase 7)
     "remove_platform_badge": False,
     "max_weddings_per_account": 3,  # account-level, checked at creation
+    # --- AI creation wizard (AI_WIZARD_PLAN Phase 8) ---
+    # Off by default; weddings are opted in per plan/override. The "1 free arc,
+    # then pay" model = ai_arc_generations_included: 1 + a credit balance above
+    # it (Phase 6 Stripe tops up ai_credits_included via overrides).
+    "ai_enabled": False,
+    "ai_credits_included": 0,
+    "ai_arc_generations_included": 1,
+    "ai_max_images_per_arc": 6,
+    "ai_max_inputs_per_job": 12,
+    "ai_max_regens_per_artifact": 3,  # first regen of each artifact is free
 }
 
 # Human labels for "not on your plan" messaging (kept server-side so the API's
@@ -39,11 +49,17 @@ _LIMIT_MESSAGES = {
     "max_story_arcs": "Story-chapter limit reached for this wedding's plan",
     "max_storage_mb": "Storage limit reached for this wedding's plan",
     "max_weddings_per_account": "You've reached the number of weddings your account allows",
+    "ai_credits_included": "You've used all this wedding's AI credits",
+    "ai_arc_generations_included": "You've used this wedding's included story generations",
+    "ai_max_images_per_arc": "Illustration limit reached for this story",
+    "ai_max_inputs_per_job": "That's more files than one AI run can take",
+    "ai_max_regens_per_artifact": "Regeneration limit reached for this item",
 }
 _FEATURE_MESSAGES = {
     "wishes_enabled": "The guestbook isn't available on this wedding's plan",
     "export_enabled": "Exports aren't available on this wedding's plan",
     "import_enabled": "Spreadsheet import isn't available on this wedding's plan",
+    "ai_enabled": "AI assistance isn't available on this wedding's plan",
 }
 _UPGRADE_HINT = " — contact us to upgrade"
 

@@ -6,7 +6,8 @@ that private repo, not here.
 
 _Last updated: 2026-07-10 (Phases 1–5 built & tested locally; review P0, P1
 AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
-deferrals)._
+deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`) started: 8.0 data model
+done)._
 
 ## Where things stand (one paragraph)
 
@@ -21,7 +22,7 @@ Sentry are the remaining infrastructure work, deliberately deferred until RT
 creates those accounts. A full-codebase review (2026-07-09) found no
 cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
 and the four P0 items (N+1 eager loading, introspection cache, Resend email
-seam, guest-API rate limiting) are done. Suite: **232 pytest** (offline) +
+seam, guest-API rate limiting) are done. Suite: **279 pytest** (offline) +
 **20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs` against local dev
 servers); `tsc`/`eslint`/`next build` clean.
 
@@ -167,16 +168,40 @@ there).
 
 ## Phase 6 (billing) / Phase 7 (growth) — not started (by design)
 
+## Phase 8 — AI creation wizard (`AI_WIZARD_PLAN.md`)
+
+- [x] **8.0 Data model — DONE (local) 2026-07-10.** Migration `c9d0e1f2a3b4`:
+  `ai_jobs` (partial unique index `uq_ai_jobs_one_active` = one queued/running
+  job per wedding, enforced in the DB; `(wedding_id, idempotency_key)` unique),
+  `ai_inputs`, `ai_usage_ledger` (append-only; survives purge with pointers
+  nulled, like `audit_log` — purge.py updated), `ai_variants`, `ai_prompts`
+  (platform-owned; `provider=''` = shared fallback since Postgres forbids NULL
+  PK columns). Tenant tables ride the Wedding ORM purge cascade. AI entitlement
+  keys (`ai_enabled` off by default, credits/regen/input caps) in
+  `DEFAULT_ENTITLEMENTS`. Tests: `tests/test_ai_models.py`.
+- [ ] 8.1 Pipeline (transcribe → extract → resolve → draft → images → ground)
+  + provider port (`app/ai/`): Anthropic adapter first, golden-set eval.
+- [ ] 8.2 Prompt registry (`app/ai/prompts.py` code defaults; console editor).
+- [ ] 8.3 Guardrails (SVG sanitiser, apply allowlist, kill switch/ceiling,
+  reap-ai-jobs cron).
+- [ ] 8.4 API surface + wizard/review UI; wrong-tenant 404 + no-membership
+  401/403 tests on every endpoint; apply-cannot-write-invite_tier test.
+- [ ] **Blocked on RT:** Anthropic / Gemini (billing-enabled) / Places API keys
+  (see the plan's key table); decision on forcing AI-drafted weddings through
+  the approval queue.
+
 ## Test & verification status (2026-07-10)
 
-- `pytest`: **268 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **279 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
   Review-P0 additions: query-count guards (`test_query_efficiency.py`),
   introspection cache, rate limiting, emailer seam. Review-P2 additions:
   `test_p2_hardening.py` (races → 409, invite merge, JSON bounds, import
-  caps, profile commit discipline, tz helpers, RSVP deadline).
+  caps, profile commit discipline, tz helpers, RSVP deadline). Phase 8.0
+  additions: `test_ai_models.py` (one-active-job index, idempotency key,
+  purge-vs-ledger, prompt composite key, AI entitlement defaults).
 - Frontend: `tsc --noEmit`, `eslint .`, `next build` clean.
 - E2E smoke (`node scripts/smoke-e2e.mjs`, needs both dev servers +
   `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,
