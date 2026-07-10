@@ -122,8 +122,9 @@ export default function StoryPanel({
         <Box>
           <Typography variant="h6">Story arcs</Typography>
           <Typography variant="body2" color="text.secondary">
-            Guests see every visible arc. Use the Guests tab to show specific arcs
-            to specific people.
+            {arcs.length > 1
+              ? "Guests see every visible arc. To show specific arcs to specific people, edit a guest in the Guests tab and use its Story arc override."
+              : "Guests see every visible arc. Add a second arc to unlock per-guest targeting (a Story arc override appears when editing a guest)."}
           </Typography>
         </Box>
         <Button startIcon={<AddIcon />} variant="contained" onClick={addArc} disabled={busy}>
