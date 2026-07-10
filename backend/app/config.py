@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     # `Authorization: Bearer $CRON_SECRET`). Empty = the routes 404.
     cron_secret: str = ""
 
+    # --- AI creation wizard (app/ai/, AI_WIZARD_PLAN Phase 8) -------------------
+    # The text model is pluggable by config; media (Gemini) is a hard-coded seam.
+    # `fake` is the offline/test adapter. Platform admins can later override
+    # model/effort per prompt key via the ai_prompts table.
+    ai_text_provider: str = "anthropic"  # anthropic | openai | fake
+    ai_text_model: str = "claude-opus-4-8"
+    ai_text_effort: str = "high"  # low | medium | high
+    anthropic_api_key: str = ""
+
     # LOCAL-DEV ONLY: a static bearer token that stands in for a Supabase login
     # so /admin works on SQLite without Supabase Auth. Empty in production (then
     # only a real Supabase session is accepted). Set it in .env.local.

@@ -5,6 +5,24 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-10 — AI wizard 8.1: provider-port decisions
+**Adapters never leak SDK exception types.** The pipeline has exactly one
+failure path (job → failed, hold refunded), so `app/ai/types.py` defines
+`ProviderError`/`ProviderRefusal` and every adapter maps into them. Tests
+stub the SDK client (injectable constructor arg + lazy import) — the whole
+suite runs without the `anthropic` package installed.
+
+**Anthropic request shape pins that will bite if forgotten (Opus 4.8):**
+`thinking: {"type": "adaptive"}` must be EXPLICIT (omitting = no thinking);
+`temperature`/`top_p`/`top_k` all 400; effort lives in `output_config`;
+a refusal is HTTP 200 with `stop_reason == "refusal"` — check before reading
+content; min cacheable prefix is 4096 tokens (below = silent no-op). Pinned
+in `test_ai_provider_port.py::test_anthropic_adapter_request_shape…`.
+
+**Unknown model in the price table records cost 0, never guesses.** The
+ledger is append-only money-at-write-time; a silent wrong price is worse
+than an auditable zero + a `ai.pricing.unknown_model` log line.
+
 ## 2026-07-10 — AI wizard 8.0: schema gotchas
 **Postgres forbids NULL in primary-key columns.** The plan's `ai_prompts`
 "(key, provider, version) PK with provider = NULL as the shared fallback"

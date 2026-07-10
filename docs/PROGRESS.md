@@ -22,7 +22,7 @@ Sentry are the remaining infrastructure work, deliberately deferred until RT
 creates those accounts. A full-codebase review (2026-07-09) found no
 cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
 and the four P0 items (N+1 eager loading, introspection cache, Resend email
-seam, guest-API rate limiting) are done. Suite: **279 pytest** (offline) +
+seam, guest-API rate limiting) are done. Suite: **292 pytest** (offline) +
 **20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs` against local dev
 servers); `tsc`/`eslint`/`next build` clean.
 
@@ -179,9 +179,25 @@ there).
   PK columns). Tenant tables ride the Wedding ORM purge cascade. AI entitlement
   keys (`ai_enabled` off by default, credits/regen/input caps) in
   `DEFAULT_ENTITLEMENTS`. Tests: `tests/test_ai_models.py`.
-- [ ] 8.1 Pipeline (transcribe → extract → resolve → draft → images → ground)
-  + provider port (`app/ai/`): Anthropic adapter first, golden-set eval.
-- [ ] 8.2 Prompt registry (`app/ai/prompts.py` code defaults; console editor).
+- [x] **8.1a Provider port — DONE (local) 2026-07-10.** `app/ai/` package:
+  `types.py` (one-method `TextModel` port — `generate_structured(prompt,
+  schema, effort)`; `ProviderRefusal`/`ProviderError` are the only failure
+  surface), `providers/anthropic.py` (reference adapter: explicit adaptive
+  thinking, `output_config.effort`, cache-hint breakpoint on the system block,
+  no sampling knobs, refusal/truncation mapping, lazy SDK import + injectable
+  client), `providers/fake.py` (deterministic offline adapter — also the
+  golden-set replay seam), `pricing.py` + `ledger.py` (money priced at write
+  time; unknown model → 0, auditable), config knobs (`ai_text_provider|model|
+  effort`, `anthropic_api_key`). Tests: `tests/test_ai_provider_port.py`.
+- [x] **8.2 Prompt registry (backend) — DONE (local) 2026-07-10.**
+  `app/ai/prompts.py`: the four code-default system prompts (extract /
+  draft_arc / ground / glyph), `ai_prompts` DB overrides (provider-specific >
+  shared > code default; malformed/inactive rows fall back — never brick),
+  allowlisted `string.Template.safe_substitute` rendering (injection-safe;
+  tested with `${x.__class__}` payloads). Console editor UI still owed (8.4).
+- [ ] 8.1b Pipeline (transcribe → extract → resolve → draft → images →
+  ground): `ai_jobs` service + step advance, Gemini media seam
+  (`app/ai/media.py`), Places resolve, golden-set eval.
 - [ ] 8.3 Guardrails (SVG sanitiser, apply allowlist, kill switch/ceiling,
   reap-ai-jobs cron).
 - [ ] 8.4 API surface + wizard/review UI; wrong-tenant 404 + no-membership
@@ -192,7 +208,7 @@ there).
 
 ## Test & verification status (2026-07-10)
 
-- `pytest`: **279 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **292 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
@@ -201,7 +217,9 @@ there).
   `test_p2_hardening.py` (races → 409, invite merge, JSON bounds, import
   caps, profile commit discipline, tz helpers, RSVP deadline). Phase 8.0
   additions: `test_ai_models.py` (one-active-job index, idempotency key,
-  purge-vs-ledger, prompt composite key, AI entitlement defaults).
+  purge-vs-ledger, prompt composite key, AI entitlement defaults) and
+  `test_ai_provider_port.py` (prompt resolution/rendering, fake + Anthropic
+  adapters, factory, pricing, ledger).
 - Frontend: `tsc --noEmit`, `eslint .`, `next build` clean.
 - E2E smoke (`node scripts/smoke-e2e.mjs`, needs both dev servers +
   `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,
