@@ -20,6 +20,7 @@ from app.ai.pricing import cost_usd_micros
 from app.ai.providers import get_text_model
 from app.ai.providers.anthropic import AnthropicTextModel
 from app.ai.providers.fake import FakeTextModel
+from app.ai.providers.openai import OpenAITextModel
 from app.ai.types import ProviderError, ProviderRefusal, RenderedPrompt, Usage
 from app.config import Settings
 from app.models import AiPrompt, AiUsageLedger
@@ -152,8 +153,9 @@ def test_factory_selects_by_config():
     assert isinstance(
         get_text_model(_settings(ai_text_provider="anthropic")), AnthropicTextModel
     )
-    with pytest.raises(ProviderError, match="openai"):
-        get_text_model(_settings(ai_text_provider="openai"))
+    assert isinstance(
+        get_text_model(_settings(ai_text_provider="openai")), OpenAITextModel
+    )
     with pytest.raises(ProviderError, match="Unknown"):
         get_text_model(_settings(ai_text_provider="grok"))
 
@@ -248,6 +250,135 @@ def test_anthropic_adapter_maps_failures():
     )
     with pytest.raises(ProviderError, match="anthropic call failed"):
         adapter.generate_structured(_prompt(), Facts, effort="high")
+
+
+# ---------------------------------------------------------------------------
+# OpenAI adapter (stub client — offline)
+# ---------------------------------------------------------------------------
+class _StubResponsesApi:
+    """Scripted `client.responses.parse`: pops results (a response or an
+    exception) in order and records every kwargs it was called with."""
+
+    def __init__(self, results: list):
+        self.results, self.calls = list(results), []
+
+    def parse(self, **kwargs):
+        self.calls.append(kwargs)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+class _StubOpenAIClient:
+    def __init__(self, *results):
+        self.responses = _StubResponsesApi(list(results))
+
+
+def _openai_ok(output: Facts) -> SimpleNamespace:
+    return SimpleNamespace(
+        status="completed",
+        output_parsed=output,
+        output=[],
+        usage=SimpleNamespace(input_tokens=1000, output_tokens=200),
+        model="gpt-5.1",
+        _request_id="req_oai_1",
+        incomplete_details=None,
+    )
+
+
+def _openai_settings(**overrides) -> Settings:
+    base = dict(ai_text_provider="openai", ai_text_model="gpt-5.1")
+    base.update(overrides)
+    return _settings(**base)
+
+
+def test_openai_adapter_request_shape_and_success():
+    client = _StubOpenAIClient(_openai_ok(Facts(venue_name="Fern Hall")))
+    adapter = OpenAITextModel(_openai_settings(), client=client)
+    completion = adapter.generate_structured(
+        _prompt(system="SYS", user="USER"), Facts, effort="high"
+    )
+
+    sent = client.responses.calls[0]
+    assert sent["model"] == "gpt-5.1"
+    assert sent["reasoning"] == {"effort": "high"}  # port Effort → reasoning knob
+    assert sent["text_format"] is Facts
+    assert sent["max_output_tokens"] == 1024
+    assert sent["input"] == [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "USER"},
+    ]
+    # No sampling knobs, no Anthropic-shaped fields (caching is automatic).
+    assert not {"temperature", "top_p", "thinking", "cache_control"} & set(sent)
+
+    assert completion.output.venue_name == "Fern Hall"
+    assert completion.usage == Usage(
+        provider="openai", model="gpt-5.1",
+        input_tokens=1000, output_tokens=200, request_id="req_oai_1",
+    )
+
+
+def test_openai_adapter_refuses_claude_model_id():
+    """The configured default model is a Claude id — selecting the openai
+    provider without changing it must fail fast with the fix named, not slow
+    with a provider 404."""
+    adapter = OpenAITextModel(_settings(ai_text_provider="openai"), client=_StubOpenAIClient())
+    with pytest.raises(ProviderError, match="AI_TEXT_MODEL"):
+        adapter.generate_structured(_prompt(), Facts, effort="high")
+
+
+def test_openai_adapter_retries_without_reasoning_once():
+    """A non-reasoning model 400s on `reasoning` — the adapter degrades the
+    knob (one retry, logged) instead of failing the couple's job."""
+    client = _StubOpenAIClient(
+        RuntimeError("Unsupported parameter: 'reasoning' is not supported with this model."),
+        _openai_ok(Facts()),
+    )
+    adapter = OpenAITextModel(_openai_settings(ai_text_model="gpt-4.1"), client=client)
+    completion = adapter.generate_structured(_prompt(), Facts, effort="high")
+    assert completion.usage.provider == "openai"
+    assert "reasoning" in client.responses.calls[0]
+    assert "reasoning" not in client.responses.calls[1]
+
+
+def test_openai_adapter_maps_failures():
+    refusal = _openai_ok(Facts())
+    refusal.output = [SimpleNamespace(
+        type="message",
+        content=[SimpleNamespace(type="refusal", refusal="I can't help with that")],
+    )]
+    adapter = OpenAITextModel(_openai_settings(), client=_StubOpenAIClient(refusal))
+    with pytest.raises(ProviderRefusal, match="can't help"):
+        adapter.generate_structured(_prompt(), Facts, effort="high")
+
+    filtered = _openai_ok(Facts())
+    filtered.status = "incomplete"
+    filtered.incomplete_details = SimpleNamespace(reason="content_filter")
+    adapter = OpenAITextModel(_openai_settings(), client=_StubOpenAIClient(filtered))
+    with pytest.raises(ProviderRefusal, match="content filter"):
+        adapter.generate_structured(_prompt(), Facts, effort="high")
+
+    truncated = _openai_ok(Facts())
+    truncated.status = "incomplete"
+    truncated.incomplete_details = SimpleNamespace(reason="max_output_tokens")
+    adapter = OpenAITextModel(_openai_settings(), client=_StubOpenAIClient(truncated))
+    with pytest.raises(ProviderError, match="truncated"):
+        adapter.generate_structured(_prompt(), Facts, effort="high")
+
+    adapter = OpenAITextModel(
+        _openai_settings(), client=_StubOpenAIClient(RuntimeError("rate limited"))
+    )
+    with pytest.raises(ProviderError, match="openai call failed"):
+        adapter.generate_structured(_prompt(), Facts, effort="high")
+
+
+def test_openai_adapter_prompt_model_override():
+    client = _StubOpenAIClient(_openai_ok(Facts()))
+    adapter = OpenAITextModel(_openai_settings(), client=client)
+    adapter.generate_structured(_prompt(model="gpt-5-mini"), Facts, effort="low")
+    assert client.responses.calls[0]["model"] == "gpt-5-mini"  # registry override
+    assert client.responses.calls[0]["reasoning"] == {"effort": "low"}
 
 
 # ---------------------------------------------------------------------------

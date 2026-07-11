@@ -16,11 +16,7 @@ def get_text_model(settings: Settings) -> TextModel:
 
         return FakeTextModel()
     if provider == "openai":
-        # Deliberate: ship one adapter, keep the seam (AI_WIZARD_PLAN "do not
-        # gate the launch on having both"). The port is one method wide, so
-        # adding openai.py later touches nothing outside providers/.
-        raise ProviderError(
-            "The openai text adapter isn't implemented yet — set "
-            "AI_TEXT_PROVIDER=anthropic (or 'fake' for offline runs)."
-        )
+        from app.ai.providers.openai import OpenAITextModel
+
+        return OpenAITextModel(settings)
     raise ProviderError(f"Unknown ai_text_provider {settings.ai_text_provider!r}")

@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     ai_text_model: str = "claude-opus-4-8"
     ai_text_effort: str = "high"  # low | medium | high
     anthropic_api_key: str = ""
+    # Alternate text model behind the same port (providers/openai.py). When
+    # selecting it, set ai_text_model to an OpenAI id (e.g. gpt-5.1) too.
+    openai_api_key: str = ""
     # Media understanding (app/ai/media.py) — must be a BILLING-ENABLED
     # AI Studio project (free-tier input may train on guest PII). Empty =
     # media inputs refused; pasted text still works.

@@ -23,7 +23,7 @@ Sentry are the remaining infrastructure work, deliberately deferred until RT
 creates those accounts. A full-codebase review (2026-07-09) found no
 cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
 and the four P0 items (N+1 eager loading, introspection cache, Resend email
-seam, guest-API rate limiting) are done. Suite: **340 pytest** (offline) +
+seam, guest-API rate limiting) are done. Suite: **345 pytest** (offline) +
 **20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs` against local dev
 servers); `tsc`/`eslint`/`next build` clean.
 
@@ -190,6 +190,13 @@ there).
   golden-set replay seam), `pricing.py` + `ledger.py` (money priced at write
   time; unknown model → 0, auditable), config knobs (`ai_text_provider|model|
   effort`, `anthropic_api_key`). Tests: `tests/test_ai_provider_port.py`.
+  **`providers/openai.py` added 2026-07-11** (RT has a key): Responses API
+  `responses.parse(text_format=…)`, port Effort → `reasoning.effort` (one
+  logged retry without it for non-reasoning models), refusal parts +
+  content-filter → `ProviderRefusal`, cache hint ignored (auto prefix cache),
+  refuses a Claude model id with the fix named; `openai_api_key` config,
+  gpt-5-family prices in the table, `openai==2.45.0` pinned. NOTE: a
+  production provider swap still gates on the golden-set eval (8.1c).
 - [x] **8.2 Prompt registry (backend) — DONE (local) 2026-07-10.**
   `app/ai/prompts.py`: the four code-default system prompts (extract /
   draft_arc / ground / glyph), `ai_prompts` DB overrides (provider-specific >
@@ -261,7 +268,7 @@ there).
 
 ## Test & verification status (2026-07-11)
 
-- `pytest`: **340 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **345 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).

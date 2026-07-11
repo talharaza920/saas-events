@@ -27,6 +27,12 @@ PRICES: dict[tuple[str, str], tuple[float, float]] = {
     ("anthropic", "claude-opus-4-7"): (5.00, 25.00),
     ("anthropic", "claude-sonnet-4-6"): (3.00, 15.00),
     ("anthropic", "claude-haiku-4-5"): (1.00, 5.00),
+    # OpenAI (verify against platform.openai.com/pricing when switching — an
+    # id missing here records $0 and logs ai.pricing.unknown_model).
+    ("openai", "gpt-5.1"): (1.25, 10.00),
+    ("openai", "gpt-5"): (1.25, 10.00),
+    ("openai", "gpt-5-mini"): (0.25, 2.00),
+    ("openai", "gpt-5-nano"): (0.05, 0.40),
     # The fake adapter is free — keeps offline runs honest in the ledger.
     ("fake", "fake-model"): (0.0, 0.0),
 }
