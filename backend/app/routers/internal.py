@@ -12,6 +12,7 @@ import secrets
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
+from app.ai.jobs import reap_expired_jobs
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.purge import purge_archived_weddings
@@ -44,6 +45,14 @@ def cron_purge_archived(
     """Scheduled hard-delete of weddings archived past the 30-day undo window."""
     purged = purge_archived_weddings(db, settings)
     return {"purged": purged, "count": len(purged)}
+
+
+@router.get("/cron/reap-ai-jobs", dependencies=[Depends(require_cron_secret)])
+@router.post("/cron/reap-ai-jobs", dependencies=[Depends(require_cron_secret)])
+def cron_reap_ai_jobs(db: Session = Depends(get_db)) -> dict:
+    """Scheduled sweep of stuck AI jobs (expired + hold refunded) and orphaned
+    raw inputs (see app/ai/jobs.py::reap_expired_jobs)."""
+    return reap_expired_jobs(db)
 
 
 @router.get("/cron/reconcile-storage", dependencies=[Depends(require_cron_secret)])

@@ -240,7 +240,10 @@ def test_glyph_job_and_options_clamping(db_session):
 
     job = _run_to_review(db_session, s, job, fake)  # glyph needs no inputs
     assert job.status == "awaiting_review"
-    assert job.proposal["glyph"]["sanitised"] is False  # untrusted until 8.3
+    # 8.3: the allowlist-rebuild sanitiser runs inside the glyph step, so the
+    # proposal only ever carries the re-serialised form.
+    assert job.proposal["glyph"]["sanitised"] is True
+    assert job.proposal["glyph"]["svg_children"] == '<circle cx="50" cy="50" r="40" />'
 
 
 # ---------------------------------------------------------------------------

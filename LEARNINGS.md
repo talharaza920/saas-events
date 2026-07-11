@@ -5,6 +5,30 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-11 — AI wizard 8.3: guardrail decisions
+**Sanitise model SVG at BOTH ends, and never filter — rebuild.** `app/ai/svg.py`
+parses with defusedxml and constructs a NEW tree from the element/attribute
+allowlist (anything else — script, on*, style, href, url(#), text nodes,
+namespaces — never exists in the output, so there's nothing to pattern-match).
+It runs inside the glyph pipeline step (the review UI must never render raw
+model output) AND again in `apply` (a proposal is stored JSON that could have
+been written by an older/buggier pipeline; its `sanitised: true` flag is data,
+not proof). An unusable mark = a failed, refunded generation — never "render
+it anyway".
+
+**The daily cost ceiling must queue, not fail.** Tripping
+`ai.daily_cost_ceiling_usd` raises 503 (+Retry-After) with NO job-state
+change, so the run resumes when the window/ceiling clears; the reap cron is
+the net that eventually expires-and-refunds a job that never resumes. If the
+ceiling marked jobs failed, a platform-wide budget event would consume every
+in-flight couple's held credits.
+
+**Apply is a dispatch table of writers, not a merge.** `apply.py` maps each
+allowlisted section to an explicit writer function; unknown proposal keys are
+unreachable by construction (the hostile-proposal test pins slug/status/
+published/invite_tier/settings/theme as non-writable). Deep-copy
+`wedding.content`, mutate, reassign — same SQLAlchemy JSON trap as ever.
+
 ## 2026-07-11 — AI wizard 8.1b: pipeline gotchas
 **Order the friendly gates before the money math.** The one-active-job rule
 is enforced by the DB partial index, but with only that, a second create

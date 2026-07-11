@@ -4,10 +4,11 @@ The resumable source of truth for platform work. Phases are defined in
 `SAAS_PLAN.md`. The predecessor build's milestone history (M1–M14) lives in
 that private repo, not here.
 
-_Last updated: 2026-07-10 (Phases 1–5 built & tested locally; review P0, P1
+_Last updated: 2026-07-11 (Phases 1–5 built & tested locally; review P0, P1
 AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
-deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`) started: 8.0 data model
-done)._
+deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`): 8.0 data model, 8.1a
+provider port, 8.2 prompt registry, 8.1b pipeline core and 8.3 guardrails all
+done; 8.4 API surface + wizard/review UI is next)._
 
 ## Where things stand (one paragraph)
 
@@ -22,7 +23,7 @@ Sentry are the remaining infrastructure work, deliberately deferred until RT
 creates those accounts. A full-codebase review (2026-07-09) found no
 cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
 and the four P0 items (N+1 eager loading, introspection cache, Resend email
-seam, guest-API rate limiting) are done. Suite: **303 pytest** (offline) +
+seam, guest-API rate limiting) are done. Suite: **322 pytest** (offline) +
 **20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs` against local dev
 servers); `tsc`/`eslint`/`next build` clean.
 
@@ -211,17 +212,31 @@ there).
 - [ ] 8.1c deferred to infra/asset time: Gemini transcribe implementation
   (needs billing-enabled key; confirm current model id then), Nano Banana
   `images` fan-out step, `guests` kind, golden-set eval fixtures.
-- [ ] 8.3 Guardrails (SVG sanitiser, apply allowlist, kill switch/ceiling,
-  reap-ai-jobs cron).
+- [x] **8.3 Guardrails — DONE (local) 2026-07-11.** `app/ai/svg.py`
+  (defusedxml parse → allowlist REBUILD → re-serialise; script/handlers/style/
+  hrefs/url(#)/non-currentColor paint/text all dropped by construction; runs
+  inside the glyph step so the review UI never sees raw model output, and again
+  at apply). `app/ai/apply.py` (human-gated transactional apply; writes ONLY
+  couple_names / event_details display keys / one new story arc / brand.icon_svg;
+  never slug/status/published/invite_tier/settings/theme; re-checks
+  `max_story_arcs` + platform banned-word scan at apply time; audit
+  `ai.job.apply` with `source: "ai"`; `ai_generated: true` stamped on created
+  rows — hostile-proposal test proves the non-writes). Daily cost ceiling
+  (`ai.daily_cost_ceiling_usd`, ledger-summed since UTC midnight) checked with
+  the kill switch before every advance — tripping QUEUES the job (503 +
+  Retry-After, no state change), never fails it. Reap cron:
+  `/api/internal/cron/reap-ai-jobs` (`require_cron_secret`) expires stuck
+  active jobs past `expires_at` (refund + input sweep) and deletes orphan
+  `ai_inputs` older than 24 h. Tests: `tests/test_ai_guardrails.py` (19).
 - [ ] 8.4 API surface + wizard/review UI; wrong-tenant 404 + no-membership
   401/403 tests on every endpoint; apply-cannot-write-invite_tier test.
 - [ ] **Blocked on RT:** Anthropic / Gemini (billing-enabled) / Places API keys
   (see the plan's key table); decision on forcing AI-drafted weddings through
   the approval queue.
 
-## Test & verification status (2026-07-10)
+## Test & verification status (2026-07-11)
 
-- `pytest`: **303 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **322 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
@@ -234,7 +249,10 @@ there).
   `test_ai_provider_port.py` (prompt resolution/rendering, fake + Anthropic
   adapters, factory, pricing, ledger) and `test_ai_pipeline.py` (creation
   gates, full wizard run to proposal, step replay, glyph, refusal/cancel/
-  expiry refunds).
+  expiry refunds). Phase 8.3 additions: `test_ai_guardrails.py` (sanitiser
+  vs real script/onload/url(#)/entity payloads, hostile-proposal apply
+  non-writes incl. invite_tier, apply-time entitlement + banned-word
+  re-checks, ceiling queues-not-fails, reap + cron-secret endpoint).
 - Frontend: `tsc --noEmit`, `eslint .`, `next build` clean.
 - E2E smoke (`node scripts/smoke-e2e.mjs`, needs both dev servers +
   `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,
@@ -249,7 +267,8 @@ there).
 2. Vercel frontend + backend projects (hnd1), env vars, WAF rate rules (P1-2);
    cron entries with `Authorization: Bearer $CRON_SECRET` (backend code paths
    are in): `/api/internal/cron/purge-archived` daily,
-   `/api/internal/cron/reconcile-storage` weekly.
+   `/api/internal/cron/reconcile-storage` weekly,
+   `/api/internal/cron/reap-ai-jobs` hourly (stuck AI jobs expire after 2 h).
 3. Email provider (Resend) → code path is in (`RESEND_API_KEY` + `EMAIL_FROM`
    env vars); create the account + verify the sending domain.
 4. Sentry: create the project(s) and set `SENTRY_DSN` (backend init is in);

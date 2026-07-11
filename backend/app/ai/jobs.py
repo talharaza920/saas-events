@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -27,11 +27,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.ai.credits import compute_hold, refund_hold
-from app.ai.ledger import record_usage
+from app.ai.ledger import cost_usd_today, record_usage
 from app.ai.media import MAX_TRANSCRIPT_CHARS, transcribe_input
 from app.ai.prompts import render_prompt
 from app.ai.resolve import resolve_venue
 from app.ai.schemas import DraftArc, ExtractedFacts, GlyphOutput, GroundingReport
+from app.ai.svg import SvgSanitizationError, sanitize_glyph
 from app.ai.types import EFFORT_VALUES, ProviderError, ProviderRefusal, TextModel
 from app.audit_log import record
 from app.config import Settings
@@ -60,6 +61,9 @@ STEPS: dict[str, tuple[str, ...]] = {
 
 # Stuck `running` jobs past this are expired (hold refunded) by the reap cron.
 EXPIRES_AFTER = timedelta(hours=2)
+# Inputs uploaded but never claimed by a job are raw PII — the reap cron
+# deletes them once they're clearly abandoned.
+ORPHAN_INPUT_TTL = timedelta(hours=24)
 
 # Platform circuit breaker, editable from the console (Phase 8.4). Checked
 # before any provider call — same read-with-defaults pattern as approval.py.
@@ -196,10 +200,25 @@ def advance_job(
         _terminate(db, job, AiJobStatus.EXPIRED, "run took too long and expired")
         db.commit()
         return job
-    if get_ai_settings(db)["kill_switch"]:
+    ai_settings = get_ai_settings(db)
+    if ai_settings["kill_switch"]:
         raise HTTPException(
             status_code=503, detail="AI assistance is temporarily paused — try again later"
         )
+    # The daily cost ceiling (guardrail 6): checked before any provider call.
+    # Tripping it QUEUES the job rather than failing it — no state change here,
+    # the client retries after the window (and if it never resumes, the reap
+    # cron expires it with a full refund).
+    ceiling = ai_settings.get("daily_cost_ceiling_usd")
+    if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and ceiling > 0:
+        if cost_usd_today(db) >= ceiling:
+            log_event(logger, "ai.ceiling.tripped", job_id=str(job.id),
+                      wedding_id=str(job.wedding_id), ceiling_usd=ceiling)
+            raise HTTPException(
+                status_code=503,
+                detail="AI is at capacity right now — your run is saved and will continue later",
+                headers={"Retry-After": "1800"},
+            )
 
     job.status = AiJobStatus.RUNNING
     step_name = STEPS[job.kind][job.step]
@@ -223,6 +242,38 @@ def advance_job(
     db.commit()
     db.refresh(job)
     return job
+
+
+def reap_expired_jobs(db: Session, *, now: datetime | None = None) -> dict:
+    """The reap-ai-jobs cron body (plan 8.3 §9): move stuck queued/running
+    jobs past their `expires_at` to `expired` — hold refunded, inputs swept —
+    and delete orphan inputs (uploaded but never claimed by any job) older
+    than ORPHAN_INPUT_TTL, since raw submissions are PII that must not linger.
+    Timestamp compares happen in Python (as_utc) so SQLite's naive storage
+    can't skew them, same as purge.py. Commits once at the end.
+    """
+    now = now or utcnow()
+    expired: list[dict] = []
+    active = db.execute(
+        select(AiJob).where(AiJob.status.in_(AiJobStatus.ACTIVE))
+    ).scalars().all()
+    for job in active:
+        if job.expires_at is not None and as_utc(job.expires_at) < now:
+            _terminate(db, job, AiJobStatus.EXPIRED, "run took too long and expired")
+            expired.append(
+                {"job_id": str(job.id), "wedding_id": str(job.wedding_id), "kind": job.kind}
+            )
+
+    orphan_cutoff = now - ORPHAN_INPUT_TTL
+    orphans_swept = 0
+    for inp in db.execute(select(AiInput).where(AiInput.job_id.is_(None))).scalars():
+        if inp.created_at is not None and as_utc(inp.created_at) < orphan_cutoff:
+            db.delete(inp)
+            orphans_swept += 1
+
+    if expired or orphans_swept:
+        db.commit()
+    return {"expired": expired, "orphan_inputs_swept": orphans_swept}
 
 
 def cancel_job(db: Session, job: AiJob) -> AiJob:
@@ -385,8 +436,13 @@ def _step_glyph(db, settings, job, state, text_model) -> None:
         schema=GlyphOutput,
         ledger_kind="glyph",
     )
-    # UNTRUSTED until the 8.3 allowlist-rebuild sanitiser runs at apply time.
-    state["glyph"] = {**glyph.model_dump(), "sanitised": False}
+    # Allowlist-rebuild NOW, so the review UI never renders raw model output.
+    # An unusable mark is a failed generation (refunded), never rendered anyway.
+    try:
+        children = sanitize_glyph(glyph.svg_children)
+    except SvgSanitizationError as exc:
+        raise ProviderError(f"the generated mark wasn't usable ({exc}) — try again")
+    state["glyph"] = {"svg_children": children, "concept": glyph.concept, "sanitised": True}
 
 
 # ---------------------------------------------------------------------------

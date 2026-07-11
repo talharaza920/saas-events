@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.pricing import cost_usd_micros
 from app.ai.types import Usage
 from app.models import AiUsageLedger
+from app.timeutil import db_bind_utc, utcnow
 
 
 def record_usage(
@@ -41,3 +43,17 @@ def record_usage(
     )
     db.add(row)
     return row
+
+
+def cost_usd_today(db: Session) -> float:
+    """Platform-wide spend since UTC midnight — the input to the daily cost
+    ceiling (guardrail 6). Micros are summed in SQL (the created_at index
+    carries it); the bound goes through db_bind_utc so SQLite's naive
+    storage compares correctly."""
+    start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    micros = db.execute(
+        select(func.coalesce(func.sum(AiUsageLedger.cost_usd_micros), 0)).where(
+            AiUsageLedger.created_at >= db_bind_utc(db, start)
+        )
+    ).scalar_one()
+    return micros / 1_000_000
