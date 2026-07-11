@@ -291,9 +291,11 @@ export default function DetailsPanel({
   // --- Brand mark (cover wordmark + center icon) ---------------------------
   const brand0 = rec(c.brand);
   const brandMode0 = s(brand0.icon_mode);
+  // icon_svg is read-only here: only the AI apply path writes it (sanitised).
+  const brandSvg = s(brand0.icon_svg);
   const [brand, setBrand] = useState({
     wordmark_text: s(brand0.wordmark_text),
-    icon_mode: (["default", "custom", "none"].includes(brandMode0)
+    icon_mode: (["default", "custom", "svg", "none"].includes(brandMode0)
       ? brandMode0
       : "default") as BrandIconMode,
     icon_url: s(brand0.icon_url),
@@ -605,8 +607,18 @@ export default function DetailsPanel({
         >
           <ToggleButton value="default">Cat glyph</ToggleButton>
           <ToggleButton value="custom">Upload</ToggleButton>
+          {brandSvg && <ToggleButton value="svg">AI mark</ToggleButton>}
           <ToggleButton value="none">No icon</ToggleButton>
         </ToggleButtonGroup>
+        {brand.icon_mode === "svg" && brandSvg && (
+          <Box
+            component="svg"
+            viewBox="0 0 100 100"
+            aria-hidden
+            sx={{ width: 64, height: 64, color: "text.primary" }}
+            dangerouslySetInnerHTML={{ __html: brandSvg }}
+          />
+        )}
         {brand.icon_mode === "custom" && (
           <Box sx={{ maxWidth: 200 }}>
             <ImageUpload

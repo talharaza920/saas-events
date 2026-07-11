@@ -148,6 +148,36 @@ def test_fake_adapter_contract():
         fake.generate_structured(_prompt(key="draft_arc.system"), Facts, effort="low")
 
 
+def test_demo_canned_set_runs_the_pipeline_offline():
+    """The factory's fake instance (local dev / smoke E2E) must satisfy every
+    pipeline step: all four keys canned, outputs valid against the step
+    schemas, demo glyphs surviving the sanitiser, regen alternates differing."""
+    from app.ai.schemas import DraftArc, ExtractedFacts, GlyphOutput, GroundingReport
+    from app.ai.svg import sanitize_glyph
+
+    fake = get_text_model(_settings(ai_text_provider="fake"))
+    assert isinstance(fake, FakeTextModel)
+    schema_by_key = {
+        "extract.system": ExtractedFacts,
+        "draft_arc.system": DraftArc,
+        "ground.system": GroundingReport,
+        "glyph.system": GlyphOutput,
+    }
+    for key, schema in schema_by_key.items():
+        out = fake.generate_structured(_prompt(key=key), schema, effort="high").output
+        if isinstance(out, GlyphOutput):
+            assert sanitize_glyph(out.svg_children)  # never a broken demo mark
+    # The review UI's amber-flag path is exercised by default in dev.
+    ground = fake.generate_structured(
+        _prompt(key="ground.system"), GroundingReport, effort="high"
+    ).output
+    assert ground.all_supported is False and ground.unsupported
+    # Regenerations must produce a visibly different variant.
+    first = fake.generate_structured(_prompt(key="draft_arc.system"), DraftArc, effort="high")
+    second = fake.generate_structured(_prompt(key="draft_arc.system"), DraftArc, effort="high")
+    assert first.output != second.output
+
+
 def test_factory_selects_by_config():
     assert isinstance(get_text_model(_settings(ai_text_provider="fake")), FakeTextModel)
     assert isinstance(

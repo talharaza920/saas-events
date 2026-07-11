@@ -4,11 +4,12 @@ The resumable source of truth for platform work. Phases are defined in
 `SAAS_PLAN.md`. The predecessor build's milestone history (M1–M14) lives in
 that private repo, not here.
 
-_Last updated: 2026-07-11 (Phases 1–5 built & tested locally; review P0, P1
+_Last updated: 2026-07-12 (Phases 1–5 built & tested locally; review P0, P1
 AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
 deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`): 8.0 data model, 8.1a
-provider port, 8.2 prompt registry, 8.1b pipeline core, 8.3 guardrails and
-8.4a API surface all done; 8.4b wizard/review UI is next)._
+provider port (+ OpenAI adapter), 8.2 prompt registry, 8.1b pipeline core,
+8.3 guardrails, 8.4a API surface and 8.4b wizard/review UI + consoles all
+done; 8.1c media/images/guests + golden-set eval are the remaining seams)._
 
 ## Where things stand (one paragraph)
 
@@ -23,8 +24,9 @@ Sentry are the remaining infrastructure work, deliberately deferred until RT
 creates those accounts. A full-codebase review (2026-07-09) found no
 cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
 and the four P0 items (N+1 eager loading, introspection cache, Resend email
-seam, guest-API rate limiting) are done. Suite: **345 pytest** (offline) +
-**20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs` against local dev
+seam, guest-API rate limiting) are done. Suite: **346 pytest** (offline) +
+**20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs`) + **17/17 AI
+smoke** checks (`frontend/scripts/smoke-ai.mjs`, both against local dev
 servers); `tsc`/`eslint`/`next build` clean.
 
 ## Phase 0 — Fork, personal-data scrub, security hardening
@@ -203,7 +205,7 @@ there).
   shared > code default; malformed/inactive rows fall back — never brick),
   allowlisted `string.Template.safe_substitute` rendering (injection-safe;
   tested with `${x.__class__}` payloads). Editor API landed with 8.4a; the
-  console UI page is owed with 8.4b.
+  console UI page landed with 8.4b.
 - [x] **8.1b Pipeline core — DONE (local) 2026-07-11.** `app/ai/jobs.py`
   state machine (create → advance-one-step → awaiting_review; cancel/fail/
   expire all refund + sweep inputs), fixed step lists per kind (wizard:
@@ -260,15 +262,46 @@ there).
   read-only, platform 403s, full wizard→apply over HTTP, idempotency,
   step-replay, regen credits/cap/refusal, select swap-and-back, glyph regen
   sanitised, console settings/prompts/usage.
-- [ ] 8.4b Wizard/review UI (`/create` flow + admin), platform prompt-editor
-  + usage console pages, glyph "use as icon" opt-in (`icon_mode`).
+- [x] **8.4b Wizard/review UI + consoles — DONE (local) 2026-07-12.**
+  Frontend: `aiApi` in `lib/adminApi.ts` (same transport/wedding binding) and
+  AI methods in `lib/platformApi.ts`. Shared components in `components/ai/`:
+  `AiRunProgress` (drives POST `advance` one step at a time with
+  `expected_step` replay-safety; a 503 breaker/ceiling pauses with a retry,
+  never fails), `AiReviewPanel` (per-section apply checkboxes, amber
+  grounding flags matched to beats, variants side-by-side with select +
+  bounded steer + regenerate, apply/cancel, credits chip, post-apply "use it
+  as your cover icon" switch), `GlyphMark` (renders ONLY the server-sanitised
+  SVG). `/create` gains an optional story field — the wedding is created
+  FIRST (plan's rule), then the wizard runs inline under the normal admin
+  API, with a friendly fallback when the plan has `ai_enabled=false`. Admin
+  dashboard gains an **AI tab** (`components/admin/AiPanel.tsx`: credits,
+  start story_arc/glyph runs, revive in-flight runs on reload, recent-runs
+  list). Platform console gains an **AI tab**
+  (`components/platform/AiConsoleTab.tsx`: kill switch + daily ceiling,
+  usage widgets — today/30 days/by step/by provider/top spenders/jobs by
+  status — and the prompt registry editor: versioned saves, activate/
+  deactivate rollback, live/effective markers). Glyph icon opt-in:
+  `BrandIconMode` gains `"svg"` (cover `Wordmark` renders
+  `content.brand.icon_svg` inline in currentColor; only the AI apply path
+  ever writes that key; DetailsPanel offers "AI mark" when one exists; apply
+  itself still never touches `icon_mode` — the switch is the owner's call).
+  Dev seams so all of this runs offline: the provider factory's `fake` branch
+  now serves `demo_responses()` (full wizard offline, one amber flag by
+  default, module-level cycles so regenerated variants actually differ) and
+  `dev_setup` seeds a default **Local dev plan** with `ai_enabled` + 50
+  credits. Verified end-to-end in a real browser by
+  `frontend/scripts/smoke-ai.mjs` (17/17): story run → amber flag → free
+  regen → variant select → apply (arc row `ai_generated` via API), glyph run
+  → apply → icon switch (API-checked `icon_mode=svg`), guest cover renders
+  the stored sanitised mark, platform AI console, `/create` story wizard
+  through to the dashboard handoff.
 - [ ] **Blocked on RT:** Anthropic / Gemini (billing-enabled) / Places API keys
   (see the plan's key table); decision on forcing AI-drafted weddings through
   the approval queue.
 
-## Test & verification status (2026-07-11)
+## Test & verification status (2026-07-12)
 
-- `pytest`: **345 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **346 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
@@ -293,6 +326,11 @@ there).
   `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,
   full family RSVP persisted, landing, dashboard, wedding admin (lifecycle
   strip, Team tab), platform console.
+- AI smoke (`node scripts/smoke-ai.mjs`, same prerequisites +
+  `AI_TEXT_PROVIDER=fake`): **17/17** — the whole 8.4b surface in a real
+  browser with API-verified writes (see the 8.4b entry above). Note the
+  fake's demo cycles are per-backend-process: `rm dev.db` + reseed gives a
+  deterministic run.
 
 ## Infrastructure TODO (when RT provisions accounts)
 

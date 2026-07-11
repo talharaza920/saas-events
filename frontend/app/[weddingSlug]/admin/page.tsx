@@ -34,6 +34,7 @@ import {
 } from "@/lib/adminApi";
 import { isDevAuth, isSupabaseConfigured, signOut, supabase } from "@/lib/adminAuth";
 
+import AiPanel from "@/components/admin/AiPanel";
 import DetailsPanel from "@/components/admin/DetailsPanel";
 import GuestsPanel from "@/components/admin/GuestsPanel";
 import LifecycleBanner from "@/components/admin/LifecycleBanner";
@@ -184,6 +185,7 @@ export default function AdminPage() {
           <Tab label="Details" />
           <Tab label="RSVP" />
           <Tab label="Theme" />
+          <Tab label="AI" />
           <Tab label={`Guests (${data.guests.length})`} />
           <Tab label={`Responses (${data.responses.length})`} />
           <Tab label={`Wishes (${data.wishes.length})`} />
@@ -210,7 +212,8 @@ export default function AdminPage() {
             <RsvpPanel content={data.content} questions={data.questions} onChanged={refresh} />
           )}
           {tab === 4 && <ThemePanel content={data.content} onChanged={refresh} />}
-          {tab === 5 && (
+          {tab === 5 && <AiPanel me={data.me} onChanged={refresh} />}
+          {tab === 6 && (
             <GuestsPanel
               guests={data.guests}
               arcs={data.arcs}
@@ -219,9 +222,9 @@ export default function AdminPage() {
               onChanged={refresh}
             />
           )}
-          {tab === 6 && <ResponsesPanel responses={data.responses} />}
-          {tab === 7 && <WishesPanel wishes={data.wishes} onChanged={refresh} />}
-          {tab === 8 && <MembersPanel me={data.me} members={data.members} onChanged={refresh} />}
+          {tab === 7 && <ResponsesPanel responses={data.responses} />}
+          {tab === 8 && <WishesPanel wishes={data.wishes} onChanged={refresh} />}
+          {tab === 9 && <MembersPanel me={data.me} members={data.members} onChanged={refresh} />}
         </Stack>
       </Container>
     </Box>

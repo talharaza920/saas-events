@@ -93,7 +93,7 @@ export default function Cover({
             <Wordmark
               size={150}
               text={brand.wordmark_text || undefined}
-              icon={{ mode: brand.icon_mode, url: brand.icon_url }}
+              icon={{ mode: brand.icon_mode, url: brand.icon_url, svg: brand.icon_svg }}
             />
           </Box>
           {greeting && (

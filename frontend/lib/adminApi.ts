@@ -101,6 +101,21 @@ export type StoryArcUpdate = Omit<components["schemas"]["StoryArcUpdate"], "cont
   content?: Json;
 };
 
+// --- AI wizard (Phase 8.4) ---------------------------------------------------
+// JSON columns again render as `Record<string, never>`; override with Json.
+export type AiInputRef = components["schemas"]["AiInputRef"];
+export type AiVariantAdmin = Omit<components["schemas"]["AiVariantAdmin"], "content"> & {
+  content: Json | null;
+};
+export type AiJobAdmin = Omit<components["schemas"]["AiJobAdmin"], "proposal" | "variants"> & {
+  proposal: Json | null;
+  variants: AiVariantAdmin[];
+};
+export type AiApplyResult = components["schemas"]["AiApplyResult"];
+export type AiCreditsInfo = components["schemas"]["AiCreditsInfo"];
+export type AiJobKind = "wizard" | "story_arc" | "glyph";
+export type AiArtifact = "arc.text" | "glyph";
+
 /** Flatten an answer value to a display string (any question type). */
 export function formatAnswer(v: AnswerValue | null | undefined): string {
   if (!v) return "";
@@ -229,6 +244,48 @@ export const adminApi = {
   revokeMember: (id: string) => req<MemberAdmin>(`/members/${id}`, { method: "DELETE" }),
   transferOwnership: (id: string) =>
     req<MemberAdmin>(`/members/${id}/transfer-ownership`, { method: "POST" }),
+};
+
+/**
+ * The AI wizard API (/admin/ai/*, Phase 8.4). Same transport + wedding binding
+ * as {@link adminApi}. The model proposes; code disposes — nothing here writes
+ * wedding content except apply, which is allowlisted server-side.
+ */
+export const aiApi = {
+  createInput: (text: string) =>
+    req<AiInputRef>("/ai/inputs", { method: "POST", body: JSON.stringify({ kind: "text", text }) }),
+  // The Idempotency-Key makes a double-click return the same job instead of a 409.
+  createJob: (kind: AiJobKind, inputIds: string[], options: Json = {}, idempotencyKey?: string) =>
+    req<AiJobAdmin>("/ai/jobs", {
+      method: "POST",
+      body: JSON.stringify({ kind, input_ids: inputIds, options }),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
+    }),
+  listJobs: () => req<AiJobAdmin[]>("/ai/jobs"),
+  getJob: (id: string) => req<AiJobAdmin>(`/ai/jobs/${id}`),
+  // Drives exactly ONE pipeline step; `expectedStep` makes retries replay-safe.
+  advanceJob: (id: string, expectedStep?: number) =>
+    req<AiJobAdmin>(`/ai/jobs/${id}/advance`, {
+      method: "POST",
+      body: JSON.stringify({ expected_step: expectedStep ?? null }),
+    }),
+  regenerate: (id: string, artifact: AiArtifact, steer?: string) =>
+    req<AiVariantAdmin>(`/ai/jobs/${id}/regenerate`, {
+      method: "POST",
+      body: JSON.stringify({ artifact, steer: steer?.trim() || null }),
+    }),
+  selectVariant: (id: string, artifact: AiArtifact, variantId: string) =>
+    req<AiJobAdmin>(`/ai/jobs/${id}/select`, {
+      method: "POST",
+      body: JSON.stringify({ artifact, variant_id: variantId }),
+    }),
+  applyJob: (id: string, selections?: string[]) =>
+    req<AiApplyResult>(`/ai/jobs/${id}/apply`, {
+      method: "POST",
+      body: JSON.stringify({ selections: selections ?? null }),
+    }),
+  cancelJob: (id: string) => req<AiJobAdmin>(`/ai/jobs/${id}/cancel`, { method: "POST" }),
+  credits: () => req<AiCreditsInfo>("/ai/credits"),
 };
 
 /** Upload a guest spreadsheet (CSV/XLSX). `commit=false` is a dry-run preview. */

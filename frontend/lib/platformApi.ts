@@ -19,6 +19,13 @@ export type PlatformStats = components["schemas"]["PlatformStats"];
 export type AuditEntry = components["schemas"]["AuditEntry"];
 export type PlanAdmin = components["schemas"]["PlanAdmin"];
 export type WeddingPlanAdmin = components["schemas"]["WeddingPlanAdmin"];
+// --- AI console (Phase 8.4) --------------------------------------------------
+export type AiSettingsPayload = components["schemas"]["AiSettingsPayload"];
+export type AiPromptAdmin = components["schemas"]["AiPromptAdmin"];
+export type AiPromptSave = components["schemas"]["AiPromptSave"];
+export type AiUsageSummary = components["schemas"]["AiUsageSummary"];
+export type AiUsageDay = components["schemas"]["AiUsageDay"];
+export type AiUsageTopWedding = components["schemas"]["AiUsageTopWedding"];
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getToken();
@@ -87,4 +94,22 @@ export const platformApi = {
       method: "PUT",
       body: JSON.stringify({ plan_id: planId, overrides: overrides ?? null }),
     }),
+
+  // --- AI console (Phase 8.4): circuit breaker, prompt registry, spend -----
+  getAiSettings: () => req<AiSettingsPayload>("/settings/ai"),
+  putAiSettings: (s: AiSettingsPayload) =>
+    req<AiSettingsPayload>("/settings/ai", { method: "PUT", body: JSON.stringify(s) }),
+  aiPrompts: () => req<AiPromptAdmin[]>("/ai/prompts"),
+  // Saves a NEW version (never edits in place); rollback = deactivate below.
+  saveAiPrompt: (key: string, body: AiPromptSave) =>
+    req<AiPromptAdmin>(`/ai/prompts/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  activateAiPrompt: (key: string, provider: string, version: number, active: boolean) =>
+    req<AiPromptAdmin>(`/ai/prompts/${encodeURIComponent(key)}/activate`, {
+      method: "POST",
+      body: JSON.stringify({ provider, version, active }),
+    }),
+  aiUsage: () => req<AiUsageSummary>("/ai/usage"),
 };

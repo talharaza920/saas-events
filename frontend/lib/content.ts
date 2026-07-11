@@ -30,14 +30,21 @@ export interface CoverContent {
   story_cue_label?: string;
 }
 /** How the cover's spinning wordmark renders its center icon. */
-export type BrandIconMode = "default" | "custom" | "none";
+export type BrandIconMode = "default" | "custom" | "svg" | "none";
 export interface BrandContent {
   /** Text set on the rotating ring around the cover icon. */
   wordmark_text?: string;
-  /** "default" = built-in cat glyph, "custom" = uploaded `icon_url`, "none" = no icon. */
+  /** "default" = built-in cat glyph, "custom" = uploaded `icon_url`,
+   * "svg" = the AI-designed `icon_svg` mark, "none" = no icon. */
   icon_mode: BrandIconMode;
   /** Uploaded square image URL, used only when icon_mode === "custom". */
   icon_url?: string;
+  /**
+   * SVG children (100×100 viewBox) for the AI-designed mark, used only when
+   * icon_mode === "svg". Written exclusively by the AI apply path, which stores
+   * the allowlist-rebuild-sanitised form — nothing else may write this key.
+   */
+  icon_svg?: string;
   /**
    * Separate uploaded square image for the RSVP-flow guide circle (the mascot
    * badge beside the speech bubble + on the confirmation screen). When blank the
@@ -471,12 +478,17 @@ function parseStorySection(v: unknown): StorySectionContent {
 function parseBrand(v: unknown): BrandContent {
   const b = obj(v);
   const mode = b.icon_mode;
+  const icon_svg = str(b.icon_svg);
+  // "svg" without a stored mark falls back to default, like custom-without-url.
   const icon_mode: BrandIconMode =
-    mode === "custom" || mode === "none" ? mode : "default";
+    mode === "custom" || mode === "none" || (mode === "svg" && icon_svg)
+      ? (mode as BrandIconMode)
+      : "default";
   return {
     wordmark_text: str(b.wordmark_text),
     icon_mode,
     icon_url: str(b.icon_url),
+    icon_svg,
     rsvp_icon_url: str(b.rsvp_icon_url),
   };
 }

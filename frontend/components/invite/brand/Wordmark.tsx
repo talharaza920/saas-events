@@ -15,6 +15,9 @@ export interface WordmarkIcon {
   mode: BrandIconMode;
   /** Uploaded square image URL — used only when mode === "custom". */
   url?: string;
+  /** AI-designed SVG children (100×100 viewBox, server-sanitised) — used only
+   * when mode === "svg". */
+  svg?: string;
 }
 
 /**
@@ -103,6 +106,17 @@ export default function Wordmark({
               alt=""
               aria-hidden
               sx={{ width: size * 0.34, height: size * 0.34, objectFit: "contain", display: "block" }}
+            />
+          ) : icon.mode === "svg" && icon.svg ? (
+            // The AI-designed mark. Only the server-sanitised form is ever
+            // stored (allowlist-rebuild, fill=currentColor — app/ai/svg.py),
+            // which is what makes this innerHTML safe to set.
+            <Box
+              component="svg"
+              viewBox="0 0 100 100"
+              aria-hidden
+              sx={{ width: size * 0.3, height: size * 0.3, color: "text.primary", display: "block" }}
+              dangerouslySetInnerHTML={{ __html: icon.svg }}
             />
           ) : (
             <CatGlyph size={size * 0.26} />

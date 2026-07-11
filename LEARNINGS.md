@@ -5,6 +5,34 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-12 — AI wizard 8.4b: UI + offline-dev gotchas
+**A per-request provider dependency means no per-instance state in adapters.**
+`get_job_text_model` constructs a fresh adapter every request, so the fake's
+demo "variety" cycles had to be module-level — as first written (cycles inside
+`demo_responses()`) every regeneration returned content identical to the
+original, and only the E2E smoke caught it (the API tests script their own
+fake). Same trap for anything else an adapter might "remember" across calls.
+
+**Don't re-derive the in-focus job from the jobs list after apply.** AiPanel's
+first post-apply refresh reset `job` from `listJobs()` (no active job → null),
+which unmounted the review panel's success state — including the "use it as
+your cover icon" switch — before it could be used. Refresh the list and
+credits; leave the job object the panel is showing alone.
+
+**The AI mark renders via `dangerouslySetInnerHTML` — safe ONLY because the
+stored form is sanitised.** The pipeline runs the allowlist-rebuild sanitiser
+before anything is persisted, and `content.brand.icon_svg` is written
+exclusively by the apply path. `GlyphMark`/`Wordmark` must never be handed raw
+model output, and nothing else may write that key. `icon_mode: "svg"` without
+a stored mark falls back to the default glyph (parse-time, like
+custom-without-url).
+
+**E2E text assertions on MUI need the innermost element.** `clickText("div",
+"Version 2")` matches the outermost container first (textContent includes the
+whole subtree) — click the chip label's `closest(".MuiPaper-root")` instead.
+And "an svg exists on the cover" was a false-positive check (the built-in cat
+glyph is also a 100×100 svg); assert against the stored `icon_svg` content.
+
 ## 2026-07-11 — AI wizard 8.4a: API-surface decisions
 **Selection writes into the proposal, so apply never learns variants exist.**
 `select_variant` copies the chosen `ai_variants` row's content into

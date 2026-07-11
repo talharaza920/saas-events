@@ -16,7 +16,8 @@ import sys
 
 from app.config import get_settings
 from app.db import Base, SessionLocal, engine
-from app.models import Guest, InviteTier, PlatformAdmin, Profile
+from app.entitlements import default_plan
+from app.models import Guest, InviteTier, Plan, PlatformAdmin, Profile
 from app.wedding_factory import ensure_owner_membership
 from scripts.seed_wedding import seed
 
@@ -64,6 +65,18 @@ def main() -> None:
         if db.get(PlatformAdmin, "dev") is None:
             db.add(PlatformAdmin(user_id="dev", granted_by="bootstrap"))
         ensure_owner_membership(db, wedding, "dev", dev_email)
+
+        # Local default plan with the AI wizard ON (production default is off —
+        # AI_WIZARD_PLAN metering) so /create and the admin AI tab are testable
+        # offline against the fake provider. Applies to every local wedding via
+        # the default-plan fallback; existing default plans are left alone.
+        if default_plan(db) is None:
+            db.add(Plan(
+                name="Local dev",
+                description="Seeded by dev_setup — AI wizard enabled for offline dev",
+                is_default=True,
+                entitlements={"ai_enabled": True, "ai_credits_included": 50},
+            ))
         db.commit()
     finally:
         db.close()

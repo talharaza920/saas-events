@@ -12,9 +12,11 @@ def get_text_model(settings: Settings) -> TextModel:
 
         return AnthropicTextModel(settings)
     if provider == "fake":
-        from app.ai.providers.fake import FakeTextModel
+        # The demo canned set: a full offline wizard run for local dev / the
+        # smoke E2E. Tests bypass this factory and script their own instances.
+        from app.ai.providers.fake import FakeTextModel, demo_responses
 
-        return FakeTextModel()
+        return FakeTextModel(responses=demo_responses())
     if provider == "openai":
         from app.ai.providers.openai import OpenAITextModel
 

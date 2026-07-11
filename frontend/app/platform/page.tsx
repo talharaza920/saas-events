@@ -41,6 +41,7 @@ import {
   type PlatformWedding,
 } from "@/lib/platformApi";
 import SignInCard from "@/components/admin/SignInCard";
+import AiConsoleTab from "@/components/platform/AiConsoleTab";
 
 const STATUS_COLOR: Record<string, "default" | "info" | "success" | "warning" | "error"> = {
   draft: "default",
@@ -154,6 +155,7 @@ export default function PlatformPage() {
           <Tab label={`Plans (${data.plans.filter((p) => !p.archived).length})`} />
           <Tab label="Rules" />
           <Tab label="Ops" />
+          <Tab label="AI" />
         </Tabs>
 
         {tab === 0 && <WeddingsTab weddings={data.weddings} plans={data.plans} run={run} />}
@@ -162,6 +164,7 @@ export default function PlatformPage() {
         {tab === 3 && <PlansTab plans={data.plans} run={run} />}
         {tab === 4 && <RulesTab rules={data.rules} run={run} />}
         {tab === 5 && <OpsTab stats={data.stats} audit={data.audit} />}
+        {tab === 6 && <AiConsoleTab />}
       </Container>
     </Box>
   );
