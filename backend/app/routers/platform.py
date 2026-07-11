@@ -12,6 +12,9 @@ Phase 2, plans & entitlements with Phase 5).
   GET  /audit                        → recent audit tail
   GET/POST/PATCH /plans              → entitlement tiers
   PUT  /weddings/{id}/plan           → assign a plan / per-wedding overrides
+  GET/PUT /settings/ai               → AI circuit breaker (kill switch, cost ceiling)
+  GET/PUT /ai/prompts (+ /activate)  → prompt registry editor (versioned, rollback)
+  GET  /ai/usage                     → AI spend widgets (Phase 8.4)
 """
 from __future__ import annotations
 
@@ -22,6 +25,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.ai.jobs import get_ai_settings, set_ai_settings
+from app.ai.ledger import cost_usd_today
+from app.ai.prompts import CODE_DEFAULTS, resolve_spec
 from app.approval import (
     evaluate_auto_approval,
     get_approval_rules,
@@ -35,8 +41,11 @@ from app.db import get_db
 from app.emailer import send_email
 from app.entitlements import effective_entitlements
 from app.purge import purge_archived_weddings
-from app.timeutil import db_bind_utc, utcnow
+from app.timeutil import as_utc, db_bind_utc, utcnow
 from app.models import (
+    AiJob,
+    AiPrompt,
+    AiUsageLedger,
     AuditLog,
     Guest,
     MemberRole,
@@ -51,6 +60,13 @@ from app.models import (
     WeddingStatus,
 )
 from app.schemas import (
+    AiPromptActivate,
+    AiPromptAdmin,
+    AiPromptSave,
+    AiSettingsPayload,
+    AiUsageDay,
+    AiUsageSummary,
+    AiUsageTopWedding,
     ApprovalDecision,
     ApprovalItem,
     AuditEntry,
@@ -617,4 +633,196 @@ def assign_plan(
         overrides=wp.overrides if wp is not None else {},
         effective=effective_entitlements(db, wedding),
         valid_until=wp.valid_until if wp is not None else None,
+    )
+
+
+# --- AI console (Phase 8.4) ------------------------------------------------------
+@router.get("/settings/ai", response_model=AiSettingsPayload)
+def get_settings_ai(db: Session = Depends(get_db)) -> AiSettingsPayload:
+    s = get_ai_settings(db)
+    return AiSettingsPayload(
+        kill_switch=bool(s.get("kill_switch")),
+        daily_cost_ceiling_usd=s.get("daily_cost_ceiling_usd") or 0,
+    )
+
+
+@router.put("/settings/ai", response_model=AiSettingsPayload)
+def put_settings_ai(
+    payload: AiSettingsPayload,
+    user: AuthedUser = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+) -> AiSettingsPayload:
+    """The circuit breaker (guardrail 6): the kill switch stops new jobs and
+    advances immediately; the ceiling makes in-flight runs queue, never fail."""
+    merged = set_ai_settings(db, payload.model_dump())
+    record(db, "platform.settings.ai", user=user, detail=merged)
+    db.commit()
+    return AiSettingsPayload(**merged)
+
+
+def _prompt_admin(row: AiPrompt, *, effective: bool) -> AiPromptAdmin:
+    return AiPromptAdmin(
+        key=row.key, provider=row.provider, version=row.version,
+        template=row.template, model=row.model, effort=row.effort,
+        max_tokens=row.max_tokens, active=row.active,
+        updated_by=row.updated_by, updated_at=row.updated_at,
+        is_effective=effective,
+    )
+
+
+@router.get("/ai/prompts", response_model=list[AiPromptAdmin])
+def list_ai_prompts(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> list[AiPromptAdmin]:
+    """Every key's code default (version 0) plus all DB override rows, with
+    `is_effective` marking what resolve_spec actually picks under the
+    configured text provider."""
+    out: list[AiPromptAdmin] = []
+    for key in sorted(CODE_DEFAULTS):
+        spec = CODE_DEFAULTS[key]
+        effective = resolve_spec(db, key, provider=settings.ai_text_provider)
+        out.append(
+            AiPromptAdmin(
+                key=key, provider="", version=0, template=spec.template,
+                model=spec.model, effort=spec.effort, max_tokens=spec.max_tokens,
+                active=True, is_code_default=True,
+                is_effective=effective.version == 0,
+            )
+        )
+        rows = db.execute(
+            select(AiPrompt).where(AiPrompt.key == key)
+            .order_by(AiPrompt.provider, AiPrompt.version)
+        ).scalars().all()
+        for row in rows:
+            out.append(
+                _prompt_admin(
+                    row,
+                    effective=(
+                        effective.version == row.version
+                        and effective.provider == row.provider
+                    ),
+                )
+            )
+    return out
+
+
+@router.put("/ai/prompts/{key}", response_model=AiPromptAdmin)
+def save_ai_prompt(
+    key: str,
+    payload: AiPromptSave,
+    user: AuthedUser = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> AiPromptAdmin:
+    """Save a NEW active version (rows are never edited in place — rollback =
+    deactivate the bad one and resolution falls back). Only known keys: a row
+    under a key the pipeline never renders would be dead config."""
+    if key not in CODE_DEFAULTS:
+        raise HTTPException(status_code=404, detail="Unknown prompt key")
+    next_version = (
+        db.execute(
+            select(func.coalesce(func.max(AiPrompt.version), 0)).where(
+                AiPrompt.key == key, AiPrompt.provider == payload.provider
+            )
+        ).scalar_one()
+        + 1
+    )
+    row = AiPrompt(
+        key=key, provider=payload.provider, version=next_version,
+        template=payload.template, model=payload.model, effort=payload.effort,
+        max_tokens=payload.max_tokens, active=True, updated_by=user.sub,
+    )
+    db.add(row)
+    record(db, "ai.prompt.save", user=user,
+           detail={"key": key, "provider": payload.provider, "version": next_version})
+    db.commit()
+    db.refresh(row)
+    effective = resolve_spec(db, key, provider=settings.ai_text_provider)
+    return _prompt_admin(
+        row,
+        effective=(effective.version == row.version and effective.provider == row.provider),
+    )
+
+
+@router.post("/ai/prompts/{key}/activate", response_model=AiPromptAdmin)
+def set_ai_prompt_active(
+    key: str,
+    payload: AiPromptActivate,
+    user: AuthedUser = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> AiPromptAdmin:
+    """Activate/deactivate one version — the rollback lever. Deactivating every
+    row is safe: resolution falls back to the code default, never bricks."""
+    row = db.get(AiPrompt, (key, payload.provider, payload.version))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Prompt version not found")
+    row.active = payload.active
+    row.updated_by = user.sub
+    record(db, "ai.prompt.activate", user=user,
+           detail={"key": key, "provider": payload.provider,
+                   "version": payload.version, "active": payload.active})
+    db.commit()
+    effective = resolve_spec(db, key, provider=settings.ai_text_provider)
+    return _prompt_admin(
+        row,
+        effective=(effective.version == row.version and effective.provider == row.provider),
+    )
+
+
+@router.get("/ai/usage", response_model=AiUsageSummary)
+def ai_usage(db: Session = Depends(get_db)) -> AiUsageSummary:
+    """Spend widgets (guardrail 10): last 30 days aggregated in Python — the
+    ledger at this scale is small, and it keeps the date math dialect-free."""
+    ai_settings = get_ai_settings(db)
+    since = utcnow() - timedelta(days=30)
+    rows = db.execute(
+        select(
+            AiUsageLedger.wedding_id, AiUsageLedger.provider, AiUsageLedger.kind,
+            AiUsageLedger.cost_usd_micros, AiUsageLedger.created_at,
+        ).where(AiUsageLedger.created_at >= db_bind_utc(db, since))
+    ).all()
+
+    days: dict[str, dict] = {}
+    by_kind: dict[str, float] = {}
+    by_provider: dict[str, float] = {}
+    per_wedding: dict = {}
+    for wedding_id, provider, kind, micros, created_at in rows:
+        usd = (micros or 0) / 1_000_000
+        day = as_utc(created_at).date().isoformat()
+        bucket = days.setdefault(day, {"usd": 0.0, "calls": 0})
+        bucket["usd"] += usd
+        bucket["calls"] += 1
+        by_kind[kind] = by_kind.get(kind, 0.0) + usd
+        by_provider[provider] = by_provider.get(provider, 0.0) + usd
+        if wedding_id is not None:
+            per_wedding[wedding_id] = per_wedding.get(wedding_id, 0.0) + usd
+
+    top = sorted(per_wedding.items(), key=lambda kv: kv[1], reverse=True)[:10]
+    top_weddings = []
+    for wedding_id, usd in top:
+        w = db.get(Wedding, wedding_id)
+        top_weddings.append(
+            AiUsageTopWedding(wedding_id=wedding_id, slug=w.slug if w else None, usd=round(usd, 6))
+        )
+
+    jobs_by_status = {
+        status: count
+        for status, count in db.execute(
+            select(AiJob.status, func.count()).group_by(AiJob.status)
+        ).all()
+    }
+    return AiUsageSummary(
+        today_usd=cost_usd_today(db),
+        ceiling_usd=ai_settings.get("daily_cost_ceiling_usd") or 0,
+        kill_switch=bool(ai_settings.get("kill_switch")),
+        days=[
+            AiUsageDay(date=d, usd=round(v["usd"], 6), calls=v["calls"])
+            for d, v in sorted(days.items())
+        ],
+        by_kind={k: round(v, 6) for k, v in by_kind.items()},
+        by_provider={k: round(v, 6) for k, v in by_provider.items()},
+        top_weddings=top_weddings,
+        jobs_by_status=jobs_by_status,
     )

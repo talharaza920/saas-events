@@ -802,6 +802,164 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/w/{wedding_slug}/admin/ai/inputs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Input */
+        post: operations["create_input_api_w__wedding_slug__admin_ai_inputs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Ai Jobs
+         * @description Recent runs, newest first — how a reloaded wizard rediscovers the
+         *     active/reviewable job. Variants omitted here (fetch the job for those).
+         */
+        get: operations["list_ai_jobs_api_w__wedding_slug__admin_ai_jobs_get"];
+        put?: never;
+        /** Create Ai Job */
+        post: operations["create_ai_job_api_w__wedding_slug__admin_ai_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ai Job */
+        get: operations["get_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/advance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Advance Ai Job */
+        post: operations["advance_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__advance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Regenerate Ai Artifact */
+        post: operations["regenerate_ai_artifact_api_w__wedding_slug__admin_ai_jobs__job_id__regenerate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Select Ai Variant */
+        post: operations["select_ai_variant_api_w__wedding_slug__admin_ai_jobs__job_id__select_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Ai Job */
+        post: operations["apply_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Ai Job */
+        post: operations["cancel_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ai Credits */
+        get: operations["ai_credits_api_w__wedding_slug__admin_ai_credits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/weddings": {
         parameters: {
             query?: never;
@@ -1124,6 +1282,114 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/platform/settings/ai": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings Ai */
+        get: operations["get_settings_ai_api_platform_settings_ai_get"];
+        /**
+         * Put Settings Ai
+         * @description The circuit breaker (guardrail 6): the kill switch stops new jobs and
+         *     advances immediately; the ceiling makes in-flight runs queue, never fail.
+         */
+        put: operations["put_settings_ai_api_platform_settings_ai_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/ai/prompts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Ai Prompts
+         * @description Every key's code default (version 0) plus all DB override rows, with
+         *     `is_effective` marking what resolve_spec actually picks under the
+         *     configured text provider.
+         */
+        get: operations["list_ai_prompts_api_platform_ai_prompts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/ai/prompts/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save Ai Prompt
+         * @description Save a NEW active version (rows are never edited in place — rollback =
+         *     deactivate the bad one and resolution falls back). Only known keys: a row
+         *     under a key the pipeline never renders would be dead config.
+         */
+        put: operations["save_ai_prompt_api_platform_ai_prompts__key__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/ai/prompts/{key}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Ai Prompt Active
+         * @description Activate/deactivate one version — the rollback lever. Deactivating every
+         *     row is safe: resolution falls back to the code default, never bricks.
+         */
+        post: operations["set_ai_prompt_active_api_platform_ai_prompts__key__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/ai/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ai Usage
+         * @description Spend widgets (guardrail 10): last 30 days aggregated in Python — the
+         *     ledger at this scale is small, and it keeps the date math dialect-free.
+         */
+        get: operations["ai_usage_api_platform_ai_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/internal/cron/purge-archived": {
         parameters: {
             query?: never;
@@ -1142,6 +1408,32 @@ export interface paths {
          * @description Scheduled hard-delete of weddings archived past the 30-day undo window.
          */
         post: operations["cron_purge_archived_api_internal_cron_purge_archived_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/internal/cron/reap-ai-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cron Reap Ai Jobs
+         * @description Scheduled sweep of stuck AI jobs (expired + hold refunded) and orphaned
+         *     raw inputs (see app/ai/jobs.py::reap_expired_jobs).
+         */
+        get: operations["cron_reap_ai_jobs_api_internal_cron_reap_ai_jobs_get"];
+        put?: never;
+        /**
+         * Cron Reap Ai Jobs
+         * @description Scheduled sweep of stuck AI jobs (expired + hold refunded) and orphaned
+         *     raw inputs (see app/ai/jobs.py::reap_expired_jobs).
+         */
+        post: operations["cron_reap_ai_jobs_api_internal_cron_reap_ai_jobs_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1283,6 +1575,318 @@ export interface components {
              * @default 0
              */
             replies_last_week: number;
+        };
+        /** AiAdvanceRequest */
+        AiAdvanceRequest: {
+            /** Expected Step */
+            expected_step?: number | null;
+        };
+        /** AiApplyRequest */
+        AiApplyRequest: {
+            /** Selections */
+            selections?: string[] | null;
+        };
+        /** AiApplyResult */
+        AiApplyResult: {
+            /** Applied */
+            applied: string[];
+            /** Job Id */
+            job_id: string;
+        };
+        /** AiCreditsInfo */
+        AiCreditsInfo: {
+            /** Remaining */
+            remaining: number;
+            /** Included */
+            included: number;
+            /** Arc Generations Used */
+            arc_generations_used: number;
+            /** Arc Generations Included */
+            arc_generations_included: number;
+        };
+        /**
+         * AiInputCreate
+         * @description One raw submission. Text only for now — media kinds (image/audio/pdf)
+         *     arrive with the Gemini transcription seam (8.1c); accepting them earlier
+         *     would just make every run fail at the transcribe step.
+         */
+        AiInputCreate: {
+            /**
+             * Kind
+             * @default text
+             * @constant
+             */
+            kind: "text";
+            /** Text */
+            text: string;
+        };
+        /** AiInputRef */
+        AiInputRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Bytes */
+            bytes: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * AiJobAdmin
+         * @description A job as the review UI sees it. `state` (raw transcripts, prompt
+         *     metadata) deliberately never crosses the wire — the proposal is the
+         *     reviewable surface.
+         */
+        AiJobAdmin: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Step */
+            step: number;
+            /** Steps Total */
+            steps_total: number;
+            /** Credits Held */
+            credits_held: number;
+            /** Error */
+            error?: string | null;
+            /** Proposal */
+            proposal?: Record<string, never> | null;
+            /**
+             * Variants
+             * @default []
+             */
+            variants: components["schemas"]["AiVariantAdmin"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at?: string | null;
+        };
+        /** AiJobCreate */
+        AiJobCreate: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "wizard" | "story_arc" | "glyph";
+            /** Input Ids */
+            input_ids?: string[];
+            /** Options */
+            options?: Record<string, never>;
+        };
+        /** AiPromptActivate */
+        AiPromptActivate: {
+            /**
+             * Provider
+             * @default
+             */
+            provider: string;
+            /** Version */
+            version: number;
+            /** Active */
+            active: boolean;
+        };
+        /** AiPromptAdmin */
+        AiPromptAdmin: {
+            /** Key */
+            key: string;
+            /**
+             * Provider
+             * @default
+             */
+            provider: string;
+            /** Version */
+            version: number;
+            /** Template */
+            template: string;
+            /** Model */
+            model?: string | null;
+            /** Effort */
+            effort?: string | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Updated By */
+            updated_by?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /**
+             * Is Code Default
+             * @default false
+             */
+            is_code_default: boolean;
+            /**
+             * Is Effective
+             * @default false
+             */
+            is_effective: boolean;
+        };
+        /**
+         * AiPromptSave
+         * @description Saves a NEW version (never edits one in place — rollback = deactivate).
+         */
+        AiPromptSave: {
+            /** Template */
+            template: string;
+            /**
+             * Provider
+             * @default
+             * @enum {string}
+             */
+            provider: "" | "anthropic" | "openai";
+            /** Model */
+            model?: string | null;
+            /** Effort */
+            effort?: ("low" | "medium" | "high") | null;
+            /** Max Tokens */
+            max_tokens?: number | null;
+        };
+        /** AiRegenerateRequest */
+        AiRegenerateRequest: {
+            /**
+             * Artifact
+             * @enum {string}
+             */
+            artifact: "arc.text" | "glyph";
+            /** Steer */
+            steer?: string | null;
+        };
+        /** AiSelectRequest */
+        AiSelectRequest: {
+            /**
+             * Artifact
+             * @enum {string}
+             */
+            artifact: "arc.text" | "glyph";
+            /**
+             * Variant Id
+             * Format: uuid
+             */
+            variant_id: string;
+        };
+        /**
+         * AiSettingsPayload
+         * @description The platform_settings 'ai' blob (circuit breaker). Whole-blob PUT.
+         */
+        AiSettingsPayload: {
+            /**
+             * Kill Switch
+             * @default false
+             */
+            kill_switch: boolean;
+            /**
+             * Daily Cost Ceiling Usd
+             * @default 25
+             */
+            daily_cost_ceiling_usd: number;
+        };
+        /** AiUsageDay */
+        AiUsageDay: {
+            /** Date */
+            date: string;
+            /** Usd */
+            usd: number;
+            /** Calls */
+            calls: number;
+        };
+        /**
+         * AiUsageSummary
+         * @description The console's spend widgets (guardrail 10) — last 30 days.
+         */
+        AiUsageSummary: {
+            /** Today Usd */
+            today_usd: number;
+            /** Ceiling Usd */
+            ceiling_usd: number;
+            /** Kill Switch */
+            kill_switch: boolean;
+            /**
+             * Days
+             * @default []
+             */
+            days: components["schemas"]["AiUsageDay"][];
+            /**
+             * By Kind
+             * @default {}
+             */
+            by_kind: {
+                [key: string]: number;
+            };
+            /**
+             * By Provider
+             * @default {}
+             */
+            by_provider: {
+                [key: string]: number;
+            };
+            /**
+             * Top Weddings
+             * @default []
+             */
+            top_weddings: components["schemas"]["AiUsageTopWedding"][];
+            /**
+             * Jobs By Status
+             * @default {}
+             */
+            jobs_by_status: {
+                [key: string]: number;
+            };
+        };
+        /** AiUsageTopWedding */
+        AiUsageTopWedding: {
+            /**
+             * Wedding Id
+             * Format: uuid
+             */
+            wedding_id: string;
+            /** Slug */
+            slug?: string | null;
+            /** Usd */
+            usd: number;
+        };
+        /** AiVariantAdmin */
+        AiVariantAdmin: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Artifact */
+            artifact: string;
+            /** Content */
+            content?: Record<string, never> | null;
+            /** Image Url */
+            image_url?: string | null;
+            /**
+             * Selected
+             * @default false
+             */
+            selected: boolean;
+            /** Steer */
+            steer?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** AnswerAdmin */
         AnswerAdmin: {
@@ -4529,6 +5133,367 @@ export interface operations {
             };
         };
     };
+    create_input_api_w__wedding_slug__admin_ai_inputs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiInputCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiInputRef"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_ai_jobs_api_w__wedding_slug__admin_ai_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_ai_job_api_w__wedding_slug__admin_ai_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiJobCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    advance_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__advance_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AiAdvanceRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    regenerate_ai_artifact_api_w__wedding_slug__admin_ai_jobs__job_id__regenerate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiRegenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiVariantAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    select_ai_variant_api_w__wedding_slug__admin_ai_jobs__job_id__select_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiSelectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AiApplyRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiApplyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ai_credits_api_w__wedding_slug__admin_ai_credits_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCreditsInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_weddings_api_platform_weddings_get: {
         parameters: {
             query?: {
@@ -5212,6 +6177,208 @@ export interface operations {
             };
         };
     };
+    get_settings_ai_api_platform_settings_ai_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSettingsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_settings_ai_api_platform_settings_ai_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiSettingsPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiSettingsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_ai_prompts_api_platform_ai_prompts_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPromptAdmin"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_ai_prompt_api_platform_ai_prompts__key__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiPromptSave"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPromptAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_ai_prompt_active_api_platform_ai_prompts__key__activate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiPromptActivate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPromptAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ai_usage_api_platform_ai_usage_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiUsageSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cron_purge_archived_api_internal_cron_purge_archived_get: {
         parameters: {
             query?: never;
@@ -5244,6 +6411,68 @@ export interface operations {
         };
     };
     cron_purge_archived_api_internal_cron_purge_archived_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cron_reap_ai_jobs_api_internal_cron_reap_ai_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cron_reap_ai_jobs_api_internal_cron_reap_ai_jobs_post: {
         parameters: {
             query?: never;
             header?: {

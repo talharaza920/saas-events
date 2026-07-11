@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.obs import init_sentry, setup_logging
-from app.routers import admin, internal, invite, me, platform
+from app.routers import admin, ai_admin, internal, invite, me, platform
 from app.storage import UPLOAD_DIR
 
 settings = get_settings()
@@ -88,5 +88,6 @@ app.include_router(invite.router)
 app.include_router(invite.public_router)
 app.include_router(me.router)
 app.include_router(admin.router)
+app.include_router(ai_admin.router)
 app.include_router(platform.router)
 app.include_router(internal.router)

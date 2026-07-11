@@ -9,7 +9,7 @@ the tier string never crosses the wire. See `app/tenancy.py`.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -1083,3 +1083,163 @@ class WeddingPlanAdmin(BaseModel):
     overrides: dict[str, Any] = {}
     effective: dict[str, Any] = {}
     valid_until: datetime | None = None
+
+
+# --- AI wizard (Phase 8.4) -----------------------------------------------------
+class AiInputCreate(BaseModel):
+    """One raw submission. Text only for now — media kinds (image/audio/pdf)
+    arrive with the Gemini transcription seam (8.1c); accepting them earlier
+    would just make every run fail at the transcribe step."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["text"] = "text"
+    text: str = Field(min_length=1, max_length=20_000)
+
+
+class AiInputRef(BaseModel):
+    id: UUID
+    kind: str
+    bytes: int
+    created_at: datetime
+
+
+class AiJobCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # `guests` is deliberately absent until its deterministic-tier writer lands (8.1c).
+    kind: Literal["wizard", "story_arc", "glyph"]
+    input_ids: list[UUID] = Field(default_factory=list, max_length=50)
+    # Only the allowlisted knobs survive (`beat_count`, `tone`) — clamped server-side.
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+class AiAdvanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Replay-safety: an advance for a step that already ran is a no-op.
+    expected_step: int | None = Field(default=None, ge=0, le=50)
+
+
+class AiRegenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    artifact: Literal["arc.text", "glyph"]
+    # The couple's one instruction channel — bounded, untrusted, user-turn only.
+    steer: str | None = Field(default=None, max_length=500)
+
+
+class AiSelectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    artifact: Literal["arc.text", "glyph"]
+    variant_id: UUID
+
+
+class AiApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # None = every applicable section; unknown names are a 422 from the apply
+    # allowlist (app/ai/apply.py owns the vocabulary).
+    selections: list[str] | None = Field(default=None, max_length=10)
+
+
+class AiApplyResult(BaseModel):
+    applied: list[str]
+    job_id: str
+
+
+class AiVariantAdmin(BaseModel):
+    id: UUID
+    artifact: str
+    content: dict[str, Any] | None = None
+    image_url: str | None = None
+    selected: bool = False
+    steer: str | None = None
+    created_at: datetime
+
+
+class AiJobAdmin(BaseModel):
+    """A job as the review UI sees it. `state` (raw transcripts, prompt
+    metadata) deliberately never crosses the wire — the proposal is the
+    reviewable surface."""
+
+    id: UUID
+    kind: str
+    status: str
+    step: int
+    steps_total: int
+    credits_held: int
+    error: str | None = None
+    proposal: dict[str, Any] | None = None
+    variants: list[AiVariantAdmin] = []
+    created_at: datetime
+    expires_at: datetime | None = None
+
+
+class AiCreditsInfo(BaseModel):
+    remaining: int
+    included: int
+    arc_generations_used: int
+    arc_generations_included: int
+
+
+class AiSettingsPayload(BaseModel):
+    """The platform_settings 'ai' blob (circuit breaker). Whole-blob PUT."""
+
+    model_config = ConfigDict(extra="forbid")
+    kill_switch: bool = False
+    daily_cost_ceiling_usd: float = Field(default=25.0, ge=0)  # 0 disables the ceiling
+
+
+class AiPromptAdmin(BaseModel):
+    key: str
+    provider: str = ""  # '' = shared fallback row / code default
+    version: int  # 0 = the code default
+    template: str
+    model: str | None = None
+    effort: str | None = None
+    max_tokens: int | None = None
+    active: bool = True
+    updated_by: str | None = None
+    updated_at: datetime | None = None
+    is_code_default: bool = False
+    # Would resolve_spec pick this row under the configured text provider?
+    is_effective: bool = False
+
+
+class AiPromptSave(BaseModel):
+    """Saves a NEW version (never edits one in place — rollback = deactivate)."""
+
+    model_config = ConfigDict(extra="forbid")
+    template: str = Field(min_length=1, max_length=20_000)
+    provider: Literal["", "anthropic", "openai"] = ""
+    model: str | None = Field(default=None, max_length=80)
+    effort: Literal["low", "medium", "high"] | None = None
+    max_tokens: int | None = Field(default=None, ge=1, le=16_000)
+
+
+class AiPromptActivate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: str = Field(default="", max_length=20)
+    version: int = Field(ge=1)
+    active: bool
+
+
+class AiUsageDay(BaseModel):
+    date: str  # ISO date (UTC)
+    usd: float
+    calls: int
+
+
+class AiUsageTopWedding(BaseModel):
+    wedding_id: UUID
+    slug: str | None = None
+    usd: float
+
+
+class AiUsageSummary(BaseModel):
+    """The console's spend widgets (guardrail 10) — last 30 days."""
+
+    today_usd: float
+    ceiling_usd: float
+    kill_switch: bool
+    days: list[AiUsageDay] = []
+    by_kind: dict[str, float] = {}
+    by_provider: dict[str, float] = {}
+    top_weddings: list[AiUsageTopWedding] = []
+    jobs_by_status: dict[str, int] = {}

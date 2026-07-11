@@ -5,6 +5,27 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-11 — AI wizard 8.4a: API-surface decisions
+**Selection writes into the proposal, so apply never learns variants exist.**
+`select_variant` copies the chosen `ai_variants` row's content into
+`job.proposal` and the apply allowlist stays exactly as 8.3 shipped it — one
+reviewable surface, one writer path. The original output is seeded as
+variant 0 on first regeneration, so "regenerate" can never destroy the
+version the couple preferred. And a regenerated draft gets a fresh grounding
+pass: it can invent facts exactly like the first one.
+
+**The provider seam doubles as a FastAPI dependency.** The advance/regenerate
+endpoints take `text_model = Depends(get_job_text_model)`; tests override
+that one dependency to inject a scripted FakeTextModel — no config contortion,
+and it's the same seam a real provider swap uses. Related: for the authz
+matrix test, nonexistent job UUIDs are fine — `require_wedding` fires before
+any path-param lookup, so 401/404 assertions don't need fixtures per endpoint.
+
+**Failed regenerations keep their ledger rows.** A refusal mid-regen (draft
+succeeded, grounding refused) still spent real dollars — commit the staged
+`ai_usage_ledger` rows before raising, but never move the couple's credits.
+Charging (`job.credits_held += 1`) happens strictly after generation succeeds.
+
 ## 2026-07-11 — AI wizard 8.3: guardrail decisions
 **Sanitise model SVG at BOTH ends, and never filter — rebuild.** `app/ai/svg.py`
 parses with defusedxml and constructs a NEW tree from the element/attribute

@@ -79,6 +79,47 @@ def get_ai_settings(db: Session) -> dict:
     return out
 
 
+def set_ai_settings(db: Session, values: dict) -> dict:
+    """Stage (caller commits) the circuit-breaker settings from the platform
+    console. Only the known keys are stored — a stray key in the payload can't
+    grow the blob into config nothing reads."""
+    merged = dict(DEFAULT_AI_SETTINGS)
+    for key in DEFAULT_AI_SETTINGS:
+        if key in values:
+            merged[key] = values[key]
+    row = db.get(PlatformSetting, AI_SETTINGS_KEY)
+    if row is None:
+        db.add(PlatformSetting(key=AI_SETTINGS_KEY, value=merged))
+    else:
+        row.value = merged
+    return merged
+
+
+def check_circuit_breaker(
+    db: Session,
+    *,
+    ceiling_detail: str = "AI is at capacity right now — try again later",
+) -> None:
+    """The platform circuit breaker (guardrail 6), checked before ANY provider
+    call — advance and regenerate both. Kill switch → 503; daily cost ceiling
+    → 503 + Retry-After with no job-state change, so in-flight runs queue
+    rather than fail (a platform budget event never burns held credits)."""
+    ai_settings = get_ai_settings(db)
+    if ai_settings["kill_switch"]:
+        raise HTTPException(
+            status_code=503, detail="AI assistance is temporarily paused — try again later"
+        )
+    ceiling = ai_settings.get("daily_cost_ceiling_usd")
+    if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and ceiling > 0:
+        if cost_usd_today(db) >= ceiling:
+            log_event(logger, "ai.ceiling.tripped", ceiling_usd=ceiling)
+            raise HTTPException(
+                status_code=503,
+                detail=ceiling_detail,
+                headers={"Retry-After": "1800"},
+            )
+
+
 def _dump(obj: dict) -> str:
     # sort_keys so identical state renders identical prompt bytes (caching).
     return json.dumps(obj, sort_keys=True, ensure_ascii=False)
@@ -200,25 +241,12 @@ def advance_job(
         _terminate(db, job, AiJobStatus.EXPIRED, "run took too long and expired")
         db.commit()
         return job
-    ai_settings = get_ai_settings(db)
-    if ai_settings["kill_switch"]:
-        raise HTTPException(
-            status_code=503, detail="AI assistance is temporarily paused — try again later"
-        )
-    # The daily cost ceiling (guardrail 6): checked before any provider call.
-    # Tripping it QUEUES the job rather than failing it — no state change here,
-    # the client retries after the window (and if it never resumes, the reap
-    # cron expires it with a full refund).
-    ceiling = ai_settings.get("daily_cost_ceiling_usd")
-    if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool) and ceiling > 0:
-        if cost_usd_today(db) >= ceiling:
-            log_event(logger, "ai.ceiling.tripped", job_id=str(job.id),
-                      wedding_id=str(job.wedding_id), ceiling_usd=ceiling)
-            raise HTTPException(
-                status_code=503,
-                detail="AI is at capacity right now — your run is saved and will continue later",
-                headers={"Retry-After": "1800"},
-            )
+    # Tripping the ceiling QUEUES the job rather than failing it — no state
+    # change here, the client retries after the window (and if it never
+    # resumes, the reap cron expires it with a full refund).
+    check_circuit_breaker(
+        db, ceiling_detail="AI is at capacity right now — your run is saved and will continue later"
+    )
 
     job.status = AiJobStatus.RUNNING
     step_name = STEPS[job.kind][job.step]

@@ -7,8 +7,8 @@ that private repo, not here.
 _Last updated: 2026-07-11 (Phases 1–5 built & tested locally; review P0, P1
 AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
 deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`): 8.0 data model, 8.1a
-provider port, 8.2 prompt registry, 8.1b pipeline core and 8.3 guardrails all
-done; 8.4 API surface + wizard/review UI is next)._
+provider port, 8.2 prompt registry, 8.1b pipeline core, 8.3 guardrails and
+8.4a API surface all done; 8.4b wizard/review UI is next)._
 
 ## Where things stand (one paragraph)
 
@@ -23,7 +23,7 @@ Sentry are the remaining infrastructure work, deliberately deferred until RT
 creates those accounts. A full-codebase review (2026-07-09) found no
 cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
 and the four P0 items (N+1 eager loading, introspection cache, Resend email
-seam, guest-API rate limiting) are done. Suite: **322 pytest** (offline) +
+seam, guest-API rate limiting) are done. Suite: **340 pytest** (offline) +
 **20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs` against local dev
 servers); `tsc`/`eslint`/`next build` clean.
 
@@ -195,7 +195,8 @@ there).
   draft_arc / ground / glyph), `ai_prompts` DB overrides (provider-specific >
   shared > code default; malformed/inactive rows fall back — never brick),
   allowlisted `string.Template.safe_substitute` rendering (injection-safe;
-  tested with `${x.__class__}` payloads). Console editor UI still owed (8.4).
+  tested with `${x.__class__}` payloads). Editor API landed with 8.4a; the
+  console UI page is owed with 8.4b.
 - [x] **8.1b Pipeline core — DONE (local) 2026-07-11.** `app/ai/jobs.py`
   state machine (create → advance-one-step → awaiting_review; cancel/fail/
   expire all refund + sweep inputs), fixed step lists per kind (wizard:
@@ -228,15 +229,39 @@ there).
   `/api/internal/cron/reap-ai-jobs` (`require_cron_secret`) expires stuck
   active jobs past `expires_at` (refund + input sweep) and deletes orphan
   `ai_inputs` older than 24 h. Tests: `tests/test_ai_guardrails.py` (19).
-- [ ] 8.4 API surface + wizard/review UI; wrong-tenant 404 + no-membership
-  401/403 tests on every endpoint; apply-cannot-write-invite_tier test.
+- [x] **8.4a API surface (backend) — DONE (local) 2026-07-11.**
+  `app/routers/ai_admin.py` — `/api/w/{slug}/admin/ai/*` riding
+  `require_wedding`: POST `inputs` (text now; media kinds land with the Gemini
+  seam in 8.1c), POST `jobs` (Idempotency-Key header), GET `jobs` +
+  `jobs/{id}` (proposal + variants; `state` never crosses the wire), POST
+  `advance` / `regenerate` / `select` / `apply` / `cancel`, GET `credits`.
+  New `app/ai/variants.py` — per-artifact regeneration (`arc.text` re-drafts
+  AND re-grounds; `glyph` re-sanitises): appends `ai_variants` rows with the
+  original seeded as variant 0 (nothing destroyed), first regen of each
+  artifact free then 1 credit (rides the job's hold), capped by
+  `ai_max_regens_per_artifact`; the bounded `steer` note goes in the USER
+  turn only; refused/failed regens never charge (ledger still records calls
+  that ran). `select` writes the keeper into `job.proposal`, so the apply
+  allowlist never learns variants exist. Platform console API in
+  `platform.py`: GET/PUT `/settings/ai` (kill switch + ceiling, audited),
+  GET/PUT `/ai/prompts` + `/activate` (versioned saves, rollback =
+  deactivate, falls back to code defaults; unknown keys 404), GET `/ai/usage`
+  (spend by day/kind/provider, top weddings, jobs by status).
+  `check_circuit_breaker` extracted in `jobs.py` (advance + regenerate share
+  it). Tests: `tests/test_ai_api.py` (18) — the 401/404 matrix over every
+  endpoint, wrong-tenant job 404 through a member's own path, suspended
+  read-only, platform 403s, full wizard→apply over HTTP, idempotency,
+  step-replay, regen credits/cap/refusal, select swap-and-back, glyph regen
+  sanitised, console settings/prompts/usage.
+- [ ] 8.4b Wizard/review UI (`/create` flow + admin), platform prompt-editor
+  + usage console pages, glyph "use as icon" opt-in (`icon_mode`).
 - [ ] **Blocked on RT:** Anthropic / Gemini (billing-enabled) / Places API keys
   (see the plan's key table); decision on forcing AI-drafted weddings through
   the approval queue.
 
 ## Test & verification status (2026-07-11)
 
-- `pytest`: **322 passed** (offline, in-memory SQLite) — includes the
+- `pytest`: **340 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the
   pre-platform suites migrated to wedding-scoped paths. Cross-tenant
   negatives throughout (`test_identity_authz.py` is the status-code spec).
@@ -252,7 +277,10 @@ there).
   expiry refunds). Phase 8.3 additions: `test_ai_guardrails.py` (sanitiser
   vs real script/onload/url(#)/entity payloads, hostile-proposal apply
   non-writes incl. invite_tier, apply-time entitlement + banned-word
-  re-checks, ceiling queues-not-fails, reap + cron-secret endpoint).
+  re-checks, ceiling queues-not-fails, reap + cron-secret endpoint). Phase
+  8.4a additions: `test_ai_api.py` (per-endpoint 401/404 authz matrix,
+  HTTP-level wizard→apply, regeneration/variants/selection, platform AI
+  console).
 - Frontend: `tsc --noEmit`, `eslint .`, `next build` clean.
 - E2E smoke (`node scripts/smoke-e2e.mjs`, needs both dev servers +
   `scripts.dev_setup`): **20/20** — three tier invites, solo tier-invisibility,
