@@ -706,8 +706,17 @@ framing is DEFERRED and tracked as an open risk (below).
 
 ~10 curated `theme_tokens` presets on the Theme tab; couples cycle through
 them, apply one, then edit any token on top — presets are starting points,
-never locks. Pure config data (the theme system already deep-merges);
-no backend schema change expected.
+never locks (the theme system already deep-merges).
+
+**Presets are platform-owned data, managed from the console.** A
+`theme_presets` blob in `platform_settings` (seeded from ~10 code defaults,
+same never-brick fallback stance as prompts/entitlements): the platform
+console gets a Themes editor where platform admins **add, edit, reorder,
+disable, or delete presets** — name, preview swatches, and the
+`theme_tokens` patch itself — with every save audited. The wedding Theme tab
+reads the active list via the API, so curating the catalogue never needs a
+deploy. Preset edits never touch weddings that already applied one (apply
+copies tokens onto the wedding; it doesn't link).
 
 ### Order: 8.5a → 8.5b → 8.5c → 8.5d → 8.5e.
 

@@ -342,7 +342,9 @@ there).
   confirm→first-image→illustrate-all, per-image credits) · 8.5c guests
   ask-back loop + spreadsheet routing · 8.5d likeness behind
   `ai_likeness_enabled` (generic consent now, legal framing DEFERRED — open
-  risk) · 8.5e ~10 theme presets on the Theme tab.
+  risk) · 8.5e ~10 theme presets on the Theme tab, platform-owned: a console
+  Themes editor lets platform admins add/edit/reorder/disable/delete presets
+  (audited; applied weddings keep their copied tokens).
 - [ ] **Blocked on RT:** Anthropic API key (Places + OpenAI + Gemini keys
   landed 2026-07-12, all live-verified; run the golden set on the Anthropic
   adapter once its key exists — it is the configured default text
