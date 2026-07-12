@@ -536,6 +536,31 @@ per Mtok, a wizard pass of ~15 k in / 3 k out ≈ **$0.15**, plus six generated
 images. Budget an arc at roughly **$0.30–$1.50** all-in and price credits with
 enough headroom that a retry is free to you, not just to the couple.
 
+### Model-tier guidance per call (token optimisation)
+
+The registry already supports a per-prompt-key `model` + `effort` override
+(console-editable, no deploy), so tiering is an ops decision, not a code
+change. Three rules before the table: **(1)** any tier change passes the
+golden-set eval first — that is its entire job; **(2)** optimise the biggest
+line on the console's spend-by-kind widget, not the cheapest-looking call;
+**(3)** effort is a second price dial — reasoning tokens are billed output,
+so "mid model, high effort" can cost more than "frontier, medium effort".
+
+| Call | Tier | Why | Example ids | Effort |
+|---|---|---|---|---|
+| `draft_arc` | **Frontier** | The couple-facing voice — this IS the product; a flat draft loses the sale. Low volume per run (1 call + regens). | claude-opus-4-8 · gpt-5.1 | high |
+| `glyph` | **Frontier** | Creative + structural (valid, composed SVG); mid models emit clumsy paths. One call per run — cost is noise. | claude-opus-4-8 · gpt-5.1 | high |
+| `ground` | **Mid** | Verification is easier than generation; a mid model reads SOURCE vs DRAFT fine. The eval's planted hallucinations gate any downgrade — if it misses one, go back up a tier. | claude-sonnet-4-6 · gpt-5-mini | medium |
+| `extract` / `details` | **Mid** | Structured extraction with abstention. The nulls-where-silent fixtures are the gate; a basic model that guesses is a downgrade even if free. | claude-haiku-4-5 · gpt-5-mini | medium |
+| `extract_guests` | **Mid, try Basic** | Near-mechanical line copying; tiers come from code anyway. Trial the basic tier behind the eval; messy WhatsApp pastes are where basic breaks first. | claude-haiku-4-5 · gpt-5-mini → gpt-5-nano | low–medium |
+| `guests` ask-back (8.5c) | **Mid** | Writing a good clarifying question needs judgement; volume is tiny. | claude-sonnet-4-6 · gpt-5-mini | medium |
+| `transcribe` | **Gemini flash** | Transcript quality feeds every later step — don't lite this until real transcripts prove clean; audio tokens are cheap regardless. | gemini-3.5-flash (floor) | n/a |
+| `images` | **Flash-image** | Per-image pricing dominates; the 8.5b beat-0-first UX is the real saving. Lite-image only if a cheap preview mode is ever wanted; pro-image only on quality complaints. | gemini-3.1-flash-image | n/a |
+
+Rough effect: moving extract/ground/guests to the mid tier cuts a run's text
+cost by ~60–70 % while the two calls that define quality stay frontier — and
+because tiering lives in prompt rows, a regression is one console rollback.
+
 ---
 
 ## API keys to sign up for
