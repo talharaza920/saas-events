@@ -622,6 +622,105 @@ question is whether generated content warrants a human look the first time.
 
 ---
 
+## Phase 8.5 — From one-shot run to guided wizard (decided 2026-07-12)
+
+8.0–8.4 shipped a single linear run. 8.5 restructures it into a gated funnel:
+text first, human edits in the middle, images only on explicit clicks, one
+image before all images. Most slices EXPOSE machinery 8.4 already built
+(per-beat variants, steer, upload seam) rather than adding new kinds of
+machinery. Slices ship independently, in order.
+
+### 8.5a — Funnel: first-time setup flow + per-tab AI entry points
+
+- `/create` slims to names + slug → the wedding exists immediately.
+- A first-time **3-step setup flow** (optional, every step skippable, and the
+  UI says plainly that everything is editable later from the tabs):
+  **1) Key details** (AI assist prominent) → **2) Story arc** (AI assist;
+  encourage uploading photos/material so the arc aligns) → **3) Guest list**.
+  Re-enterable from a dashboard checklist card until dismissed.
+- The monolithic `wizard` kind demotes to **`details`** (transcribe →
+  extract → resolve only — fill event details from a pasted blurb or voice
+  note), offered on the Details tab / setup step 1. Story and guests remain
+  their own kinds. Apply's `SECTIONS_BY_KIND` shrinks accordingly.
+
+### 8.5b — Staged story wizard (the core)
+
+- `story_arc` drops `images` from its auto step list; the run parks at
+  review as TEXT ONLY (cheap to iterate).
+- **Style picker** at input: preset chips — `storybook` (default),
+  `watercolor`, `hyper-realistic`, `anime/manga`, `line art`, `claymation` —
+  plus a bounded free-text style note. Preset key is allowlisted config; the
+  note is untrusted and rides the USER portion of the image prompt only
+  (same rule as steer).
+- **Outline review**: each beat shows its text AND its editable
+  "Illustration:" line (the image_prompt the model already writes). The
+  **climax gains its own image_prompt** — the unnumbered final "you're
+  invited" panel is part of the standard output and is checked by default
+  for illustration.
+- **Direct edits**: `PATCH /ai/jobs/{id}/proposal`, writing ONLY story_arc
+  fields, revalidated through DraftArc (bounds hold), fields flagged
+  `user_edited` (their grounding flags drop — the couple's own words need no
+  receipt; regeneration must not silently overwrite user-edited fields).
+  Free. Overall steer + regenerate stays as shipped.
+- **Confirm → first image**: after the couple confirms the text, "Illustrate
+  it" renders **beat 0 only** (the existing arc.beat.0 variant path); they
+  iterate style on that one image.
+- **Illustrate all**: `POST /ai/jobs/{id}/illustrate` runs the existing
+  fan-out on demand (client-driven partial progress) for remaining beats +
+  climax.
+- **Metering: per-image credits.** The text run keeps its flat hold and the
+  free-arc allowance; each generated image charges 1 credit; the first
+  beat-0 style iteration is free (same goodwill logic as the first regen).
+
+### 8.5c — Guests: standardize-my-list with ask-back
+
+- One Guests-tab entry point accepting paste OR file. A real spreadsheet
+  routes to the EXISTING deterministic import (no model, no cost); messy
+  text goes to the `guests` kind.
+- The extraction schema gains a bounded `questions` list
+  (`{about_line, question}`); if non-empty the job parks with partial
+  results + questions, the couple answers inline, answers append as a new
+  bounded input, ONE re-extract runs (hard cap: 2 rounds — workflow, not
+  chat). Unanswered items stay in `guests_unresolved`.
+- Tier assignment stays 100% deterministic in code. The questions improve
+  the raw lines; they never let the model near a tier.
+
+### 8.5d — Likeness (couple photos → stylised illustrations of them)
+
+Decided: build now, with a deliberately minimal consent gate; full legal
+framing is DEFERRED and tracked as an open risk (below).
+
+- Reference photos are a distinct upload role with a required **generic
+  consent checkbox** ("photos of us; store and process to create stylised
+  illustrations"); consent recorded per input (who/when). No consent = the
+  photo is never passed as a reference, period.
+- Output stays stylised: the `hyper-realistic` preset is blocked server-side
+  whenever likeness references are attached (realistic renderings of real
+  people are out of scope until the legal framing exists).
+- Behind `ai_likeness_enabled` (default false) so it can be switched off
+  per plan/platform instantly. SynthID watermark disclosed in the UI.
+- Seam: reference image(s) flow into the existing `GeminiMedia.generate_image`
+  call; consent + entitlement checked in the illustrate endpoints.
+
+### 8.5e — Theme presets (not AI, same release train)
+
+~10 curated `theme_tokens` presets on the Theme tab; couples cycle through
+them, apply one, then edit any token on top — presets are starting points,
+never locks. Pure config data (the theme system already deep-merges);
+no backend schema change expected.
+
+### Order: 8.5a → 8.5b → 8.5c → 8.5d → 8.5e.
+
+### Residual-risk update
+
+Likeness generation ships BEFORE its full legal framing (RT decision,
+2026-07-12): minimal generic consent only. This intentionally elevates
+residual risk #1 — revisit the consent copy, retention wording, and a
+counsel review before public launch; the per-plan kill switch
+(`ai_likeness_enabled`) is the interim control.
+
+---
+
 ## Exit criteria
 
 Cold start: a new account creates a wedding, uploads a voice note plus three

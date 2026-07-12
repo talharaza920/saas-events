@@ -335,11 +335,19 @@ there).
   → apply → icon switch (API-checked `icon_mode=svg`), guest cover renders
   the stored sanitised mark, platform AI console, `/create` story wizard
   through to the dashboard handoff.
-- [ ] **Blocked on RT:** Anthropic + Google Places API keys (OpenAI + Gemini
-  keys landed 2026-07-12 and are live-verified; the golden set should run on
-  the Anthropic adapter once its key exists — it is the configured default
-  text provider); decision on forcing AI-drafted weddings through the
-  approval queue.
+- [ ] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
+  Phase 8.5; build order a→e):** 8.5a funnel (slim /create + skippable
+  3-step setup + `details` kind) · 8.5b staged story wizard (style presets,
+  editable outline incl. climax image, direct proposal edits,
+  confirm→first-image→illustrate-all, per-image credits) · 8.5c guests
+  ask-back loop + spreadsheet routing · 8.5d likeness behind
+  `ai_likeness_enabled` (generic consent now, legal framing DEFERRED — open
+  risk) · 8.5e ~10 theme presets on the Theme tab.
+- [ ] **Blocked on RT:** Anthropic API key (Places + OpenAI + Gemini keys
+  landed 2026-07-12, all live-verified; run the golden set on the Anthropic
+  adapter once its key exists — it is the configured default text
+  provider); decision on forcing AI-drafted weddings through the approval
+  queue; likeness legal framing before public launch.
 
 ## Test & verification status (2026-07-12, post-8.1c)
 
