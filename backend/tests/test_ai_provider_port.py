@@ -49,7 +49,7 @@ def _prompt(**overrides) -> RenderedPrompt:
 # ---------------------------------------------------------------------------
 def test_code_defaults_cover_all_pipeline_keys():
     assert set(prompts_mod.CODE_DEFAULTS) == {
-        "extract.system", "draft_arc.system", "ground.system", "glyph.system"
+        "extract.system", "extract_guests.system", "draft_arc.system", "ground.system", "glyph.system"
     }
     # The anti-injection framing must be present in the shipped default.
     assert "<submission>" in prompts_mod.CODE_DEFAULTS["extract.system"].template
@@ -231,7 +231,9 @@ def test_anthropic_adapter_request_shape_and_success():
     assert sent["thinking"] == {"type": "adaptive"}  # explicit — omitting = no thinking
     assert sent["output_config"] == {"effort": "high"}
     assert sent["output_format"] is Facts
-    assert sent["max_tokens"] == 1024
+    # prompt.max_tokens (1024) + effort=high thinking headroom (8192): thinking
+    # tokens count against max_tokens, so visible output keeps its own budget.
+    assert sent["max_tokens"] == 1024 + 8192
     assert sent["system"] == [
         {"type": "text", "text": "SYS", "cache_control": {"type": "ephemeral"}}
     ]
@@ -334,7 +336,9 @@ def test_openai_adapter_request_shape_and_success():
     assert sent["model"] == "gpt-5.1"
     assert sent["reasoning"] == {"effort": "high"}  # port Effort → reasoning knob
     assert sent["text_format"] is Facts
-    assert sent["max_output_tokens"] == 1024
+    # prompt.max_tokens (1024) + effort=high reasoning headroom (8192) — found
+    # live by the golden-set eval: without it, drafts truncate mid-JSON.
+    assert sent["max_output_tokens"] == 1024 + 8192
     assert sent["input"] == [
         {"role": "system", "content": "SYS"},
         {"role": "user", "content": "USER"},

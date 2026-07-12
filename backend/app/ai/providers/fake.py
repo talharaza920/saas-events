@@ -122,6 +122,21 @@ _DEMO_GLYPHS = [
      "concept": "a diamond and a rising sun"},
 ]
 
+# Raw lines exactly as "the couple wrote them" — the deterministic
+# guest_import parser (not the model, not this fake) turns the markers into
+# tiers, so the demo exercises the real tier path offline.
+_DEMO_GUEST_LINES = {
+    "lines": [
+        "Jordan Lee",
+        "Riley Park",
+        "Riley Park +1",
+        "Casey Nguyen",
+        "Casey Nguyen +1",
+        "Kid (Casey Nguyen)",
+        "Sasha Chen",
+    ]
+}
+
 _DEMO_GROUND = {
     "unsupported": [
         {
@@ -143,6 +158,7 @@ _GLYPH_CYCLE = itertools.cycle(_DEMO_GLYPHS)
 def demo_responses() -> dict[str, CannedResponse]:
     return {
         "extract.system": _DEMO_EXTRACT,
+        "extract_guests.system": _DEMO_GUEST_LINES,
         "draft_arc.system": lambda _p, _s: copy.deepcopy(next(_ARC_CYCLE)),
         "ground.system": _DEMO_GROUND,
         "glyph.system": lambda _p, _s: copy.deepcopy(next(_GLYPH_CYCLE)),

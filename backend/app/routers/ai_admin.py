@@ -1,7 +1,8 @@
 """Wedding-scoped AI wizard API (AI_WIZARD_PLAN Phase 8.4) —
 `/api/w/{wedding_slug}/admin/ai/*`.
 
-  POST …/inputs               one raw submission (text now; media with 8.1c)
+  POST …/inputs               one pasted-text submission
+  POST …/inputs/upload        one media submission (image/audio/pdf, multipart)
   POST …/jobs                 {kind, input_ids, options}  [Idempotency-Key]
   GET  …/jobs, …/jobs/{id}    status, step, proposal, variants
   POST …/jobs/{id}/advance    drives exactly ONE pipeline step; idempotent per step
@@ -21,13 +22,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.apply import apply_proposal
 from app.ai.credits import arc_generations_used, credits_remaining
 from app.ai.jobs import advance_job, cancel_job, create_job
+from app.ai.media import GeminiMedia, get_media_model
 from app.ai.providers import get_text_model
 from app.ai.types import TextModel
 from app.ai.variants import regenerate_artifact, select_variant
@@ -36,6 +38,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.entitlements import effective_entitlements, require_feature
 from app.models import AiInput, AiJob, AiVariant, Wedding
+from app.storage import UploadError, store_ai_input, validate_ai_media
 from app.schemas import (
     AiAdvanceRequest,
     AiApplyRequest,
@@ -64,6 +67,24 @@ def get_job_text_model(settings: Settings = Depends(get_settings)) -> TextModel:
     """The provider seam as a dependency — tests override this to inject a
     scripted FakeTextModel without touching config."""
     return get_text_model(settings)
+
+
+def get_job_media_model(settings: Settings = Depends(get_settings)) -> GeminiMedia:
+    """The Gemini media seam as a dependency, same override story."""
+    return get_media_model(settings)
+
+
+def _check_unclaimed_cap(db: Session, wedding: Wedding) -> None:
+    unclaimed = db.execute(
+        select(func.count()).select_from(AiInput).where(
+            AiInput.wedding_id == wedding.id, AiInput.job_id.is_(None)
+        )
+    ).scalar_one()
+    if unclaimed >= MAX_UNCLAIMED_INPUTS:
+        raise HTTPException(
+            status_code=422,
+            detail="Too many unused submissions — start a run with what you have first",
+        )
 
 
 def _get_job(db: Session, wedding: Wedding, job_id: UUID) -> AiJob:
@@ -108,21 +129,52 @@ def create_input(
     db: Session = Depends(get_db),
 ) -> AiInputRef:
     require_feature(db, ctx.wedding, "ai_enabled")
-    unclaimed = db.execute(
-        select(func.count()).select_from(AiInput).where(
-            AiInput.wedding_id == ctx.wedding.id, AiInput.job_id.is_(None)
-        )
-    ).scalar_one()
-    if unclaimed >= MAX_UNCLAIMED_INPUTS:
-        raise HTTPException(
-            status_code=422,
-            detail="Too many unused submissions — start a run with what you have first",
-        )
+    _check_unclaimed_cap(db, ctx.wedding)
     inp = AiInput(
         wedding_id=ctx.wedding.id,
         kind="text",
         text_content=payload.text,
         bytes=len(payload.text.encode("utf-8")),
+        created_by=ctx.user.sub,
+    )
+    db.add(inp)
+    db.commit()
+    db.refresh(inp)
+    return AiInputRef(id=inp.id, kind=inp.kind, bytes=inp.bytes, created_at=inp.created_at)
+
+
+@router.post("/inputs/upload", response_model=AiInputRef, status_code=201)
+async def upload_ai_input(
+    file: UploadFile = File(...),
+    ctx: WeddingCtx = Depends(editor_ctx),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> AiInputRef:
+    """One media submission (voice note / photo / PDF), stored under the
+    transient ai-inputs namespace (unmetered, reaped with the job or the
+    orphan sweep — never rendered on a page). Refused with a clear message
+    when the Gemini seam isn't configured: better here than a run that fails
+    at its very first step."""
+    require_feature(db, ctx.wedding, "ai_enabled")
+    _check_unclaimed_cap(db, ctx.wedding)
+    if not settings.gemini_api_key:
+        raise HTTPException(
+            status_code=422,
+            detail="Voice notes, photos and PDFs aren't available yet — paste text instead",
+        )
+    data = await file.read()
+    try:
+        kind, ext = validate_ai_media(file.content_type, len(data))
+        url = store_ai_input(settings, ctx.wedding.slug, data, ext,
+                             file.content_type or "application/octet-stream")
+    except UploadError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    inp = AiInput(
+        wedding_id=ctx.wedding.id,
+        kind=kind,
+        storage_url=url,
+        mime=(file.content_type or "").lower(),
+        bytes=len(data),
         created_by=ctx.user.sub,
     )
     db.add(inp)
@@ -184,11 +236,13 @@ def advance_ai_job(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     text_model: TextModel = Depends(get_job_text_model),
+    media_model: GeminiMedia = Depends(get_job_media_model),
 ) -> AiJobAdmin:
     job = _get_job(db, ctx.wedding, job_id)
     job = advance_job(
         db, settings, job,
         text_model=text_model,
+        media_model=media_model,
         expected_step=payload.expected_step if payload else None,
     )
     return _job_admin(db, job)
@@ -202,12 +256,13 @@ def regenerate_ai_artifact(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     text_model: TextModel = Depends(get_job_text_model),
+    media_model: GeminiMedia = Depends(get_job_media_model),
 ) -> AiVariantAdmin:
     job = _get_job(db, ctx.wedding, job_id)
     variant = regenerate_artifact(
         db, settings, job,
         artifact=payload.artifact, steer=payload.steer,
-        text_model=text_model, user=ctx.user,
+        text_model=text_model, media_model=media_model, user=ctx.user,
     )
     return _variant_admin(variant)
 
@@ -232,10 +287,11 @@ def apply_ai_job(
     payload: AiApplyRequest | None = None,
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> AiApplyResult:
     job = _get_job(db, ctx.wedding, job_id)
     result = apply_proposal(
-        db, ctx.wedding, job,
+        db, settings, ctx.wedding, job,
         selections=payload.selections if payload else None,
         user=ctx.user,
     )
@@ -247,9 +303,10 @@ def cancel_ai_job(
     job_id: UUID,
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> AiJobAdmin:
     job = _get_job(db, ctx.wedding, job_id)
-    return _job_admin(db, cancel_job(db, job))
+    return _job_admin(db, cancel_job(db, settings, job))
 
 
 # --- Credits -------------------------------------------------------------------

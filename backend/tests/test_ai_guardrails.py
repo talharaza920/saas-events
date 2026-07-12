@@ -202,7 +202,7 @@ def test_apply_wizard_end_to_end_writes_only_allowlisted_paths(db_session):
     job = _run_to_review(db_session, s, job, _fake())
     assert job.status == "awaiting_review"
 
-    result = apply_proposal(db_session, w, job)
+    result = apply_proposal(db_session, _settings(), w, job)
 
     assert sorted(result["applied"]) == ["couple_names", "event_details", "story_arc"]
     db_session.refresh(w)
@@ -228,7 +228,7 @@ def test_apply_wizard_end_to_end_writes_only_allowlisted_paths(db_session):
     assert audit.detail["source"] == "ai"
 
     with pytest.raises(HTTPException) as exc:  # applying twice conflicts
-        apply_proposal(db_session, w, job)
+        apply_proposal(db_session, _settings(), w, job)
     assert exc.value.status_code == 409
 
 
@@ -255,7 +255,7 @@ def test_apply_cannot_write_invite_tier_slug_status_or_published(db_session):
         },
     })
 
-    result = apply_proposal(db_session, w, job)
+    result = apply_proposal(db_session, _settings(), w, job)
 
     assert sorted(result["applied"]) == ["couple_names", "event_details"]
     db_session.refresh(w)
@@ -279,14 +279,14 @@ def test_apply_selection_subset_unknown_selection_and_wrong_tenant(db_session):
     job = _reviewable_job(db_session, w, proposal)
 
     with pytest.raises(HTTPException) as exc:  # tenancy belt inside apply itself
-        apply_proposal(db_session, other, job)
+        apply_proposal(db_session, _settings(), other, job)
     assert exc.value.status_code == 404
 
     with pytest.raises(HTTPException) as exc:
-        apply_proposal(db_session, w, job, selections=["story_arc", "membership"])
+        apply_proposal(db_session, _settings(), w, job, selections=["story_arc", "membership"])
     assert exc.value.status_code == 422  # unknown selection is refused, not ignored
 
-    result = apply_proposal(db_session, w, job, selections=["story_arc"])
+    result = apply_proposal(db_session, _settings(), w, job, selections=["story_arc"])
     assert result["applied"] == ["story_arc"]
     db_session.refresh(w)
     assert w.couple_names == "Wed Select"  # unselected section untouched
@@ -300,7 +300,7 @@ def test_apply_rechecks_story_arc_entitlement_at_apply_time(db_session):
         "story_arc": {"heading": "H", "beats": [{"text": "b", "image_prompt": "i"}]},
     })
     with pytest.raises(HTTPException) as exc:
-        apply_proposal(db_session, w, job)
+        apply_proposal(db_session, _settings(), w, job)
     assert exc.value.status_code == 403
     assert job.status == "awaiting_review"  # still reviewable after the refusal
     assert db_session.execute(select(StoryArc)).scalars().all() == []
@@ -315,7 +315,7 @@ def test_apply_runs_the_banned_word_scan(db_session):
         "story_arc": {"heading": "H", "beats": [{"text": "met at a Bus Stop", "image_prompt": "i"}]},
     })
     with pytest.raises(HTTPException) as exc:
-        apply_proposal(db_session, w, job)
+        apply_proposal(db_session, _settings(), w, job)
     assert exc.value.status_code == 422
     db_session.refresh(w)
     assert w.couple_names == "Wed Banned"  # nothing was written, not even clean sections
@@ -334,7 +334,7 @@ def test_apply_glyph_stores_only_the_sanitised_form(db_session):
         },
     }, kind="glyph")
 
-    result = apply_proposal(db_session, w, job)
+    result = apply_proposal(db_session, _settings(), w, job)
 
     assert result["applied"] == ["glyph"]
     db_session.refresh(w)
@@ -345,7 +345,7 @@ def test_apply_glyph_stores_only_the_sanitised_form(db_session):
         "glyph": {"svg_children": "<script>only</script>", "concept": "x"},
     }, kind="glyph")
     with pytest.raises(HTTPException) as exc:
-        apply_proposal(db_session, w, evil)
+        apply_proposal(db_session, _settings(), w, evil)
     assert exc.value.status_code == 422
 
 
@@ -353,7 +353,7 @@ def test_apply_with_nothing_applicable_is_422(db_session):
     w = make_wedding(db_session, "wed-empty")
     job = _reviewable_job(db_session, w, {"kind": "wizard", "source": "ai"})
     with pytest.raises(HTTPException) as exc:
-        apply_proposal(db_session, w, job)
+        apply_proposal(db_session, _settings(), w, job)
     assert exc.value.status_code == 422
     assert job.status == "awaiting_review"
 
@@ -423,7 +423,7 @@ def test_reap_expires_stuck_jobs_and_sweeps_orphan_inputs(db_session):
     new_orphan = _add_text_input(db_session, fresh_w, "uploaded a minute ago")
     db_session.commit()
 
-    result = reap_expired_jobs(db_session)
+    result = reap_expired_jobs(db_session, _settings())
 
     assert [e["job_id"] for e in result["expired"]] == [str(stuck.id)]
     assert result["orphan_inputs_swept"] == 1
@@ -434,7 +434,7 @@ def test_reap_expires_stuck_jobs_and_sweeps_orphan_inputs(db_session):
     db_session.refresh(fresh)
     assert fresh.status == "queued"  # a live job is never touched
 
-    assert reap_expired_jobs(db_session) == {"expired": [], "orphan_inputs_swept": 0}
+    assert reap_expired_jobs(db_session, _settings()) == {"expired": [], "orphan_inputs_swept": 0}
 
 
 def test_reap_cron_endpoint_requires_the_shared_secret(client, make_client, db_session):

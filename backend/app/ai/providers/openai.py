@@ -45,6 +45,14 @@ from app.obs import log_event
 
 logger = logging.getLogger("app.ai")
 
+# Reasoning tokens count against max_output_tokens on the gpt-5 family, so the
+# visible-output budget (prompt.max_tokens) gets effort-scaled headroom on top
+# — without it, a high-effort draft burns the whole budget thinking and
+# truncates before the JSON completes. Found by the golden-set eval
+# (2026-07-12: 10/12 fixtures truncated at effort=high), which is exactly the
+# failure mode the eval exists to catch.
+REASONING_HEADROOM: dict[str, int] = {"low": 2048, "medium": 4096, "high": 8192}
+
 
 class OpenAITextModel:
     """`client` is injectable for tests; the real SDK import is lazy so the
@@ -82,7 +90,7 @@ class OpenAITextModel:
             )
         kwargs: dict = {
             "model": model,
-            "max_output_tokens": prompt.max_tokens,
+            "max_output_tokens": prompt.max_tokens + REASONING_HEADROOM.get(effort, 4096),
             "reasoning": {"effort": effort},
             "input": [
                 {"role": "system", "content": prompt.system},
@@ -121,7 +129,10 @@ class OpenAITextModel:
             output=parsed,
             usage=Usage(
                 provider="openai",
-                model=response.model,
+                # The REQUESTED id, not response.model: the API answers with a
+                # dated snapshot id ("gpt-5.1-2026-…") that misses the price
+                # table and silently ledgers $0 (golden-set finding).
+                model=model,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 request_id=getattr(response, "_request_id", None),

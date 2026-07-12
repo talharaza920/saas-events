@@ -17,14 +17,17 @@ const STEP_LABELS: Record<string, string> = {
   extract: "Pulling out the facts",
   resolve: "Checking venue details",
   draft: "Writing your story",
+  images: "Illustrating the beats",
   ground: "Fact-checking the draft",
   glyph: "Designing your mark",
+  guests: "Reading the guest list",
 };
 
 const STEPS_BY_KIND: Record<string, string[]> = {
-  wizard: ["transcribe", "extract", "resolve", "draft", "ground"],
-  story_arc: ["transcribe", "extract", "draft", "ground"],
+  wizard: ["transcribe", "extract", "resolve", "draft", "images", "ground"],
+  story_arc: ["transcribe", "extract", "draft", "images", "ground"],
   glyph: ["transcribe", "glyph"],
+  guests: ["transcribe", "guests"],
 };
 
 /**
@@ -56,7 +59,10 @@ export default function AiRunProgress({
       .finally(() => {
         advancing.current = false;
       });
-  }, [active, paused, job.id, job.step, onJob]);
+    // Depend on the job OBJECT, not just its step: the images fan-out step
+    // legitimately returns the same step number while it works through beats,
+    // and each server response (a fresh object) must trigger the next pass.
+  }, [active, paused, job, onJob]);
 
   if (!active && !paused) return null;
 

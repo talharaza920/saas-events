@@ -38,6 +38,36 @@ _PIL_FORMAT = {"png": "PNG", "jpg": "JPEG", "webp": "WEBP"}
 MAX_BYTES = 15 * 1024 * 1024  # 15 MB cap on the UPLOADED file.
 MAX_DIM = 1600  # longest edge after compression (matches the frontend optimizer).
 
+# --- AI wizard input media (app/ai/media.py) ---------------------------------
+# Raw submissions for the AI wizard (voice notes, venue PDFs, photos). They
+# live under their own `ai-inputs/<wedding>` namespace so the storage metering
+# (measure_wedding_media / reconcile cron) never counts them — they are
+# TRANSIENT PII, deleted when their job terminates or the reap cron sweeps
+# orphans, and never rendered on any page.
+AI_INPUT_NAMESPACE = "ai-inputs"
+
+# mime → (input kind, canonical extension). Audio formats are the set Gemini
+# documents (WAV/MP3/AAC/OGG/FLAC; m4a is AAC-in-mp4).
+ALLOWED_AI_MEDIA_TYPES: dict[str, tuple[str, str]] = {
+    "image/png": ("image", "png"),
+    "image/jpeg": ("image", "jpg"),
+    "image/jpg": ("image", "jpg"),
+    "image/webp": ("image", "webp"),
+    "application/pdf": ("pdf", "pdf"),
+    "audio/mpeg": ("audio", "mp3"),
+    "audio/mp3": ("audio", "mp3"),
+    "audio/wav": ("audio", "wav"),
+    "audio/x-wav": ("audio", "wav"),
+    "audio/ogg": ("audio", "ogg"),
+    "audio/flac": ("audio", "flac"),
+    "audio/aac": ("audio", "aac"),
+    "audio/mp4": ("audio", "m4a"),
+    "audio/x-m4a": ("audio", "m4a"),
+}
+# Gemini's inline-media request cap is 20 MB INCLUDING base64 inflation (~4/3),
+# so 10 MB of raw file leaves comfortable headroom for the prompt around it.
+MAX_AI_MEDIA_BYTES = 10 * 1024 * 1024
+
 
 class UploadError(Exception):
     """Raised for an invalid upload (bad type / too large). The router maps it to a 4xx."""
@@ -112,6 +142,115 @@ def save_image(settings: Settings, wedding_slug: str, data: bytes, content_type:
     return store_image(settings, wedding_slug, data, ext, content_type or "image/png")
 
 
+# --- AI wizard input media ----------------------------------------------------
+def validate_ai_media(content_type: str | None, size: int) -> tuple[str, str]:
+    """Validate an AI-input upload; return (input kind, extension) or raise."""
+    entry = ALLOWED_AI_MEDIA_TYPES.get((content_type or "").lower())
+    if entry is None:
+        raise UploadError(
+            "Unsupported file type — use an image (PNG/JPG/WebP), a PDF, or an "
+            "audio file (MP3/WAV/M4A/OGG/FLAC/AAC)"
+        )
+    if size > MAX_AI_MEDIA_BYTES:
+        raise UploadError("File is too large (max 10 MB)")
+    if size == 0:
+        raise UploadError("Empty file")
+    return entry
+
+
+def store_ai_input(
+    settings: Settings, wedding_slug: str, data: bytes, ext: str, content_type: str
+) -> str:
+    """Persist one raw AI submission under the transient ai-inputs namespace;
+    return its URL (stored on the AiInput row, deleted with it)."""
+    namespace = f"{AI_INPUT_NAMESPACE}/{_safe_slug(wedding_slug)}"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    if settings.use_supabase_storage:
+        return _save_supabase(settings, namespace, filename, data, content_type)
+    return _save_local(settings, namespace, filename, data)
+
+
+def _object_path_from_url(settings: Settings, url: str) -> str | None:
+    """The bucket object path (or UPLOAD_DIR-relative path) a stored URL points
+    at, or None when the URL isn't one of ours — callers must treat None as
+    'not our object, do nothing' (never fetch/delete an arbitrary URL)."""
+    if settings.use_supabase_storage:
+        prefix = (
+            f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public/"
+            f"{settings.supabase_storage_bucket}/"
+        )
+        return url[len(prefix):] if url.startswith(prefix) else None
+    prefix = f"{settings.media_base_url.rstrip('/')}/media/"
+    if not url.startswith(prefix):
+        return None
+    rel = url[len(prefix):]
+    # Belt-and-braces traversal guard: the path we mint is always uuid-named
+    # under a slug-safe namespace, so anything stranger is not ours.
+    if ".." in rel or rel.startswith("/") or "\\" in rel:
+        return None
+    return rel
+
+
+def load_media_bytes(settings: Settings, url: str) -> bytes:
+    """Fetch the bytes behind a URL this module stored (AI transcription needs
+    the raw file back). Raises UploadError when the URL isn't ours or the
+    fetch fails."""
+    path = _object_path_from_url(settings, url)
+    if path is None:
+        raise UploadError("Stored file URL is not recognised")
+    if settings.use_supabase_storage:
+        import httpx
+
+        base = settings.supabase_url.rstrip("/")
+        resp = httpx.get(
+            # The authenticated endpoint, not /public/ — works even if the
+            # bucket is later made private.
+            f"{base}/storage/v1/object/{settings.supabase_storage_bucket}/{path}",
+            headers={
+                "Authorization": f"Bearer {settings.supabase_service_key}",
+                "apikey": settings.supabase_service_key,
+            },
+            timeout=30.0,
+        )
+        if resp.status_code != 200:
+            raise UploadError(f"Stored file fetch failed ({resp.status_code})")
+        return resp.content
+    file = (UPLOAD_DIR / path).resolve()
+    if not str(file).startswith(str(UPLOAD_DIR.resolve())) or not file.is_file():
+        raise UploadError("Stored file is missing")
+    return file.read_bytes()
+
+
+def delete_media_object(settings: Settings, url: str) -> None:
+    """Best-effort delete of ONE stored object by its URL (AI input sweep /
+    unused generated images). Never raises — cleanup must not block the state
+    change that triggered it."""
+    try:
+        path = _object_path_from_url(settings, url)
+        if path is None:
+            return
+        if settings.use_supabase_storage:
+            import httpx
+
+            base = settings.supabase_url.rstrip("/")
+            httpx.request(
+                "DELETE",
+                f"{base}/storage/v1/object/{settings.supabase_storage_bucket}",
+                json={"prefixes": [path]},
+                headers={
+                    "Authorization": f"Bearer {settings.supabase_service_key}",
+                    "apikey": settings.supabase_service_key,
+                },
+                timeout=30.0,
+            ).raise_for_status()
+        else:
+            file = (UPLOAD_DIR / path).resolve()
+            if str(file).startswith(str(UPLOAD_DIR.resolve())) and file.is_file():
+                file.unlink()
+    except Exception as exc:  # noqa: BLE001 — deliberately swallowed, see docstring
+        logging.getLogger("app.storage").warning("media object delete failed: %s", exc)
+
+
 def measure_wedding_media(settings: Settings, wedding_slug: str) -> int | None:
     """Total bytes actually in storage under a wedding's namespace, or None when
     it can't be measured (provider error) — callers must treat None as "leave
@@ -166,15 +305,17 @@ def delete_wedding_media(settings: Settings, wedding_slug: str) -> None:
     the archived-wedding purge. Never raises: media cleanup must not block the DB
     purge (an orphaned public image is a cost/PII nit, a failed purge is worse)."""
     namespace = _safe_slug(wedding_slug)
-    try:
-        if settings.use_supabase_storage:
-            _delete_supabase_prefix(settings, namespace)
-        else:
-            import shutil
+    # The wedding's rendered media AND its transient AI-input namespace.
+    for prefix in (namespace, f"{AI_INPUT_NAMESPACE}/{namespace}"):
+        try:
+            if settings.use_supabase_storage:
+                _delete_supabase_prefix(settings, prefix)
+            else:
+                import shutil
 
-            shutil.rmtree(UPLOAD_DIR / namespace, ignore_errors=True)
-    except Exception as exc:  # noqa: BLE001 — deliberately swallowed, see docstring
-        logging.getLogger("app.storage").warning("media purge failed for %s: %s", namespace, exc)
+                shutil.rmtree(UPLOAD_DIR / prefix, ignore_errors=True)
+        except Exception as exc:  # noqa: BLE001 — deliberately swallowed, see docstring
+            logging.getLogger("app.storage").warning("media purge failed for %s: %s", prefix, exc)
 
 
 def _delete_supabase_prefix(settings: Settings, namespace: str) -> None:

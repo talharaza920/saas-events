@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     # AI Studio project (free-tier input may train on guest PII). Empty =
     # media inputs refused; pasted text still works.
     gemini_api_key: str = ""
+    # Gemini model ids are config, not code (they churn) — confirmed against
+    # ai.google.dev/gemini-api/docs/models 2026-07-12. Transcription = the GA
+    # flash model; images = "Nano Banana 2" (gemini-3.1-flash-image), priced
+    # per image, not per token (see ai/pricing.py IMAGE_PRICES).
+    gemini_transcribe_model: str = "gemini-3.5-flash"
+    gemini_image_model: str = "gemini-3.1-flash-image"
     # Venue resolution (app/ai/resolve.py). Empty = venues stay as the
     # couple's own words (degraded, never invented).
     google_places_api_key: str = ""

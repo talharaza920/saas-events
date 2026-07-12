@@ -6,10 +6,10 @@ that private repo, not here.
 
 _Last updated: 2026-07-12 (Phases 1–5 built & tested locally; review P0, P1
 AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
-deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`): 8.0 data model, 8.1a
-provider port (+ OpenAI adapter), 8.2 prompt registry, 8.1b pipeline core,
-8.3 guardrails, 8.4a API surface and 8.4b wizard/review UI + consoles all
-done; 8.1c media/images/guests + golden-set eval are the remaining seams)._
+deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`) is now **feature-complete
+locally**: 8.0–8.4b plus 8.1c (Gemini transcribe, Nano Banana beat images,
+`guests` kind, golden-set eval — run live on OpenAI + Gemini with real keys).
+Remaining: Anthropic/Places keys, the approval-queue decision, infra.)_
 
 ## Where things stand (one paragraph)
 
@@ -219,9 +219,49 @@ there).
   gates: ai_enabled 403 · kill switch 503 · active-run 409 (friendly check +
   DB index backstop) · credits 403 · cross-tenant inputs 404. Tests:
   `tests/test_ai_pipeline.py`.
-- [ ] 8.1c deferred to infra/asset time: Gemini transcribe implementation
-  (needs billing-enabled key; confirm current model id then), Nano Banana
-  `images` fan-out step, `guests` kind, golden-set eval fixtures.
+- [x] **8.1c Media, images, guests, eval — DONE (local + live-verified)
+  2026-07-12.** Model ids confirmed against Google's docs that day and pinned
+  in CONFIG (`gemini_transcribe_model=gemini-3.5-flash`,
+  `gemini_image_model=gemini-3.1-flash-image` "Nano Banana 2"; google-genai
+  2.11.0 pinned; `generate_content` remains first-class — the Interactions
+  API is recommended-not-required).
+  **Media:** `app/ai/media.py` grew the real `GeminiMedia` adapter (lazy SDK,
+  injectable client, refusal/blocked mapping, usage→ledger with Gemini
+  prices); POST `…/ai/inputs/upload` (multipart; audio/image/PDF, 10 MB cap =
+  inline-request headroom) stores under a transient UNMETERED
+  `ai-inputs/<slug>` namespace with per-object delete wired into every input
+  sweep (terminate/apply/reap/purge). Transcribe step ledgers per media call.
+  **Images:** new `images` pipeline step (wizard + story_arc, after draft):
+  one Nano Banana request per beat capped by `ai_max_images_per_arc`,
+  IMAGES_PER_ADVANCE=2 per /advance with the step REPEATING until done (runner
+  returns False; AiRunProgress now keys its loop on object identity); refusal
+  or missing key or full storage degrade to text-only beats, never fail the
+  run; output format sniffed by magic bytes (Gemini returns JPEG — verified
+  live); generated art is metered + byte-tracked in job.state so cancel
+  refunds the counter and apply sweeps unkept files; per-image pricing table
+  (`IMAGE_PRICES`); proposal carries `beat_images` BESIDE the draft (an
+  `image` field inside ArcBeat would invite the model to fill it); per-beat
+  regeneration (`arc.beat.N` variants, steer rides the scene text,
+  new-image auto-selected) and arc.text selection restores each draft's own
+  art. **Guests:** kind `guests` (transcribe→guests): the model returns raw
+  lines EXACTLY as written (GuestLines schema); `guest_import.build_guests`/
+  `infer_tier()` assign tiers in code; apply writer recomputes tiers from
+  bounded counts (tampered proposal tiers ignored — tested), creates rows
+  with fresh 128-bit slugs, `seed_meta.ai_generated`, `expected_party_size`,
+  `story_arc_ids` NULL, `max_guests` re-checked; `SECTIONS_BY_KIND` scopes
+  apply sections per kind (a wizard proposal can't smuggle guests). UI:
+  AiPanel attach-files + "Extract a guest list", review panel renders beat
+  images/variants and the guests/tiers section. **Eval:** `evals/golden.py`
+  (12 fictional fixtures: nulls-where-silent, prompt injection, distractor
+  venue, 3 planted hallucinations, 2 glyphs) + `scripts/eval_golden.py`
+  (live per provider/model, records to `evals/recordings/`, budgets on
+  median cost/latency) + `tests/test_ai_golden_replay.py` (offline re-judge
+  of recordings). The first LIVE run (gpt-5.1, effort=high) caught two real
+  adapter bugs: reasoning tokens truncating structured output
+  (effort-scaled headroom added to BOTH adapters) and snapshot model ids
+  ledgering $0 (usage now records the requested id). Live Gemini sanity
+  check passed (transcribe $0.002; 1408×768 image $0.067). Tests:
+  `tests/test_ai_media_guests.py` (19).
 - [x] **8.3 Guardrails — DONE (local) 2026-07-11.** `app/ai/svg.py`
   (defusedxml parse → allowlist REBUILD → re-serialise; script/handlers/style/
   hrefs/url(#)/non-currentColor paint/text all dropped by construction; runs
@@ -295,11 +335,36 @@ there).
   → apply → icon switch (API-checked `icon_mode=svg`), guest cover renders
   the stored sanitised mark, platform AI console, `/create` story wizard
   through to the dashboard handoff.
-- [ ] **Blocked on RT:** Anthropic / Gemini (billing-enabled) / Places API keys
-  (see the plan's key table); decision on forcing AI-drafted weddings through
-  the approval queue.
+- [ ] **Blocked on RT:** Anthropic + Google Places API keys (OpenAI + Gemini
+  keys landed 2026-07-12 and are live-verified; the golden set should run on
+  the Anthropic adapter once its key exists — it is the configured default
+  text provider); decision on forcing AI-drafted weddings through the
+  approval queue.
 
-## Test & verification status (2026-07-12)
+## Test & verification status (2026-07-12, post-8.1c)
+
+- `pytest`: **367 passed, 1 skipped** (offline, in-memory SQLite; the skip is
+  the golden-set "no recordings" notice, which self-disables once
+  `evals/recordings/` exists). Phase 8.1c additions:
+  `test_ai_media_guests.py` (19 — media upload authz/caps/no-key, transcribe
+  ledgering + refusal sweep incl. stored-object deletion, images fan-out
+  partial progress/cap/refusal/no-key/cancel-refund/apply-sweep, guests
+  deterministic tiers + tamper-proof apply + max_guests re-check, beat-image
+  regen/select over HTTP, per-image pricing, Gemini request-shape pin) and
+  `test_ai_golden_replay.py` (re-judges recorded eval runs offline).
+- Golden-set eval (`scripts/eval_golden.py`): run LIVE on `openai`/`gpt-5.1`
+  (recording in `evals/recordings/`); the run itself surfaced and fixed two
+  adapter bugs (reasoning-token truncation; snapshot-id → $0 pricing). Gemini
+  seam live-checked (transcribe + one generated image). Anthropic run owed
+  when its key lands.
+- AI smoke (`node scripts/smoke-ai.mjs`): **23/23** — adds attach-files
+  control, guests run → review tiers → apply → API-verified rows
+  (`plus_one`/`plus_family` from raw `+1`/kid markers).
+- E2E smoke (`node scripts/smoke-e2e.mjs`): **21/21**.
+- Frontend: `tsc --noEmit`, `eslint .`, `next build` clean; API types
+  regenerated from `openapi.json`.
+
+## Test & verification status (2026-07-12, pre-8.1c — kept for history)
 
 - `pytest`: **346 passed** (offline, in-memory SQLite) — includes the
   authz matrix, lifecycle, members, platform console, entitlements, and the

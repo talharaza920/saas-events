@@ -49,10 +49,13 @@ def cron_purge_archived(
 
 @router.get("/cron/reap-ai-jobs", dependencies=[Depends(require_cron_secret)])
 @router.post("/cron/reap-ai-jobs", dependencies=[Depends(require_cron_secret)])
-def cron_reap_ai_jobs(db: Session = Depends(get_db)) -> dict:
+def cron_reap_ai_jobs(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
     """Scheduled sweep of stuck AI jobs (expired + hold refunded) and orphaned
-    raw inputs (see app/ai/jobs.py::reap_expired_jobs)."""
-    return reap_expired_jobs(db)
+    raw inputs incl. their stored media (see app/ai/jobs.py::reap_expired_jobs)."""
+    return reap_expired_jobs(db, settings)
 
 
 @router.get("/cron/reconcile-storage", dependencies=[Depends(require_cron_secret)])

@@ -215,8 +215,8 @@ def test_job_create_idempotency_and_one_active(db_session, client):
     assert replay.json()["id"] == first.json()["id"]  # same job, no second charge
     conflict = client.post(f"{_base(w)}/jobs", json={"kind": "glyph"}, headers=_auth())
     assert conflict.status_code == 409
-    # The guests kind isn't offered until its deterministic-tier writer exists.
-    bad = client.post(f"{_base(w)}/jobs", json={"kind": "guests"}, headers=_auth())
+    # An unknown kind is refused at the schema edge.
+    bad = client.post(f"{_base(w)}/jobs", json={"kind": "banquet"}, headers=_auth())
     assert bad.status_code == 422
 
 
@@ -452,7 +452,7 @@ def test_prompt_editor_save_activate_rollback(db_session, client):
     listing = client.get("/api/platform/ai/prompts", headers=platform_auth()).json()
     defaults = [p for p in listing if p["is_code_default"]]
     assert sorted(p["key"] for p in defaults) == [
-        "draft_arc.system", "extract.system", "glyph.system", "ground.system"
+        "draft_arc.system", "extract.system", "extract_guests.system", "glyph.system", "ground.system"
     ]
     assert all(p["is_effective"] for p in defaults)  # nothing overridden yet
 

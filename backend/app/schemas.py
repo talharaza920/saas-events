@@ -1087,9 +1087,8 @@ class WeddingPlanAdmin(BaseModel):
 
 # --- AI wizard (Phase 8.4) -----------------------------------------------------
 class AiInputCreate(BaseModel):
-    """One raw submission. Text only for now — media kinds (image/audio/pdf)
-    arrive with the Gemini transcription seam (8.1c); accepting them earlier
-    would just make every run fail at the transcribe step."""
+    """One pasted-text submission. Media kinds (image/audio/pdf) go through
+    the multipart POST …/ai/inputs/upload instead — a file isn't JSON."""
 
     model_config = ConfigDict(extra="forbid")
     kind: Literal["text"] = "text"
@@ -1105,8 +1104,7 @@ class AiInputRef(BaseModel):
 
 class AiJobCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    # `guests` is deliberately absent until its deterministic-tier writer lands (8.1c).
-    kind: Literal["wizard", "story_arc", "glyph"]
+    kind: Literal["wizard", "story_arc", "glyph", "guests"]
     input_ids: list[UUID] = Field(default_factory=list, max_length=50)
     # Only the allowlisted knobs survive (`beat_count`, `tone`) — clamped server-side.
     options: dict[str, Any] = Field(default_factory=dict)
@@ -1118,16 +1116,21 @@ class AiAdvanceRequest(BaseModel):
     expected_step: int | None = Field(default=None, ge=0, le=50)
 
 
+# arc.beat.N = that beat's image (validated against the job's actual beat
+# count server-side; this pattern just bounds the wire format).
+_AI_ARTIFACT_PATTERN = r"^(arc\.text|glyph|arc\.beat\.\d{1,2})$"
+
+
 class AiRegenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    artifact: Literal["arc.text", "glyph"]
+    artifact: str = Field(pattern=_AI_ARTIFACT_PATTERN, max_length=20)
     # The couple's one instruction channel — bounded, untrusted, user-turn only.
     steer: str | None = Field(default=None, max_length=500)
 
 
 class AiSelectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    artifact: Literal["arc.text", "glyph"]
+    artifact: str = Field(pattern=_AI_ARTIFACT_PATTERN, max_length=20)
     variant_id: UUID
 
 

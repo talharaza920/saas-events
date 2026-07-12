@@ -819,6 +819,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/w/{wedding_slug}/admin/ai/inputs/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Ai Input
+         * @description One media submission (voice note / photo / PDF), stored under the
+         *     transient ai-inputs namespace (unmetered, reaped with the job or the
+         *     orphan sweep — never rendered on a page). Refused with a clear message
+         *     when the Gemini seam isn't configured: better here than a run that fails
+         *     at its very first step.
+         */
+        post: operations["upload_ai_input_api_w__wedding_slug__admin_ai_inputs_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/w/{wedding_slug}/admin/ai/jobs": {
         parameters: {
             query?: never;
@@ -1424,14 +1448,14 @@ export interface paths {
         /**
          * Cron Reap Ai Jobs
          * @description Scheduled sweep of stuck AI jobs (expired + hold refunded) and orphaned
-         *     raw inputs (see app/ai/jobs.py::reap_expired_jobs).
+         *     raw inputs incl. their stored media (see app/ai/jobs.py::reap_expired_jobs).
          */
         get: operations["cron_reap_ai_jobs_api_internal_cron_reap_ai_jobs_get"];
         put?: never;
         /**
          * Cron Reap Ai Jobs
          * @description Scheduled sweep of stuck AI jobs (expired + hold refunded) and orphaned
-         *     raw inputs (see app/ai/jobs.py::reap_expired_jobs).
+         *     raw inputs incl. their stored media (see app/ai/jobs.py::reap_expired_jobs).
          */
         post: operations["cron_reap_ai_jobs_api_internal_cron_reap_ai_jobs_post"];
         delete?: never;
@@ -1497,7 +1521,9 @@ export interface components {
              * Entitlements
              * @default {}
              */
-            entitlements: Record<string, never>;
+            entitlements: {
+                [key: string]: unknown;
+            };
             /**
              * Storage Bytes Used
              * @default 0
@@ -1606,9 +1632,8 @@ export interface components {
         };
         /**
          * AiInputCreate
-         * @description One raw submission. Text only for now — media kinds (image/audio/pdf)
-         *     arrive with the Gemini transcription seam (8.1c); accepting them earlier
-         *     would just make every run fail at the transcribe step.
+         * @description One pasted-text submission. Media kinds (image/audio/pdf) go through
+         *     the multipart POST …/ai/inputs/upload instead — a file isn't JSON.
          */
         AiInputCreate: {
             /**
@@ -1662,7 +1687,9 @@ export interface components {
             /** Error */
             error?: string | null;
             /** Proposal */
-            proposal?: Record<string, never> | null;
+            proposal?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Variants
              * @default []
@@ -1682,11 +1709,13 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "wizard" | "story_arc" | "glyph";
+            kind: "wizard" | "story_arc" | "glyph" | "guests";
             /** Input Ids */
             input_ids?: string[];
             /** Options */
-            options?: Record<string, never>;
+            options?: {
+                [key: string]: unknown;
+            };
         };
         /** AiPromptActivate */
         AiPromptActivate: {
@@ -1761,21 +1790,15 @@ export interface components {
         };
         /** AiRegenerateRequest */
         AiRegenerateRequest: {
-            /**
-             * Artifact
-             * @enum {string}
-             */
-            artifact: "arc.text" | "glyph";
+            /** Artifact */
+            artifact: string;
             /** Steer */
             steer?: string | null;
         };
         /** AiSelectRequest */
         AiSelectRequest: {
-            /**
-             * Artifact
-             * @enum {string}
-             */
-            artifact: "arc.text" | "glyph";
+            /** Artifact */
+            artifact: string;
             /**
              * Variant Id
              * Format: uuid
@@ -1872,7 +1895,9 @@ export interface components {
             /** Artifact */
             artifact: string;
             /** Content */
-            content?: Record<string, never> | null;
+            content?: {
+                [key: string]: unknown;
+            } | null;
             /** Image Url */
             image_url?: string | null;
             /**
@@ -1900,7 +1925,9 @@ export interface components {
             /** Qtype */
             qtype: string;
             /** Value */
-            value: Record<string, never>;
+            value: {
+                [key: string]: unknown;
+            };
         };
         /** AnswerPublic */
         AnswerPublic: {
@@ -1910,7 +1937,9 @@ export interface components {
              */
             question_id: string;
             /** Value */
-            value: Record<string, never>;
+            value: {
+                [key: string]: unknown;
+            };
         };
         /** AnswerSubmit */
         AnswerSubmit: {
@@ -1920,7 +1949,9 @@ export interface components {
              */
             question_id: string;
             /** Value */
-            value: Record<string, never>;
+            value: {
+                [key: string]: unknown;
+            };
         };
         /** ApprovalDecision */
         ApprovalDecision: {
@@ -1965,12 +1996,22 @@ export interface components {
              * Detail
              * @default {}
              */
-            detail: Record<string, never>;
+            detail: {
+                [key: string]: unknown;
+            };
             /** Created At */
             created_at?: string | null;
         };
         /** Body_import_guests_api_w__wedding_slug__admin_import_post */
         Body_import_guests_api_w__wedding_slug__admin_import_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
+        };
+        /** Body_upload_ai_input_api_w__wedding_slug__admin_ai_inputs_upload_post */
+        Body_upload_ai_input_api_w__wedding_slug__admin_ai_inputs_upload_post: {
             /**
              * File
              * Format: binary
@@ -2121,11 +2162,17 @@ export interface components {
             /** Couple Names */
             couple_names: string;
             /** Event Details */
-            event_details: Record<string, never>;
+            event_details: {
+                [key: string]: unknown;
+            };
             /** Content */
-            content: Record<string, never>;
+            content: {
+                [key: string]: unknown;
+            };
             /** Theme Tokens */
-            theme_tokens?: Record<string, never> | null;
+            theme_tokens?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * ContentUpdate
@@ -2137,11 +2184,17 @@ export interface components {
             /** Couple Names */
             couple_names?: string | null;
             /** Event Details */
-            event_details?: Record<string, never> | null;
+            event_details?: {
+                [key: string]: unknown;
+            } | null;
             /** Content */
-            content?: Record<string, never> | null;
+            content?: {
+                [key: string]: unknown;
+            } | null;
             /** Theme Tokens */
-            theme_tokens?: Record<string, never> | null;
+            theme_tokens?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * GroupBreakdown
@@ -2486,9 +2539,13 @@ export interface components {
             /** Couple Names */
             couple_names: string;
             /** Landing */
-            landing: Record<string, never>;
+            landing: {
+                [key: string]: unknown;
+            };
             /** Theme Tokens */
-            theme_tokens?: Record<string, never> | null;
+            theme_tokens?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** LifecycleResult */
         LifecycleResult: {
@@ -2676,7 +2733,9 @@ export interface components {
              * Entitlements
              * @default {}
              */
-            entitlements: Record<string, never>;
+            entitlements: {
+                [key: string]: unknown;
+            };
             /**
              * Archived
              * @default false
@@ -2690,7 +2749,9 @@ export interface components {
             /** Plan Id */
             plan_id?: string | null;
             /** Overrides */
-            overrides?: Record<string, never> | null;
+            overrides?: {
+                [key: string]: unknown;
+            } | null;
             /** Valid Until */
             valid_until?: string | null;
         };
@@ -2709,7 +2770,9 @@ export interface components {
              */
             is_default: boolean;
             /** Entitlements */
-            entitlements?: Record<string, never>;
+            entitlements?: {
+                [key: string]: unknown;
+            };
         };
         /** PlanUpdate */
         PlanUpdate: {
@@ -2720,7 +2783,9 @@ export interface components {
             /** Is Default */
             is_default?: boolean | null;
             /** Entitlements */
-            entitlements?: Record<string, never> | null;
+            entitlements?: {
+                [key: string]: unknown;
+            } | null;
             /** Archived */
             archived?: boolean | null;
         };
@@ -3129,7 +3194,9 @@ export interface components {
             /** Sort Order */
             sort_order: number;
             /** Content */
-            content: Record<string, never>;
+            content: {
+                [key: string]: unknown;
+            };
         };
         /** StoryArcCreate */
         StoryArcCreate: {
@@ -3149,7 +3216,9 @@ export interface components {
              */
             sort_order: number;
             /** Content */
-            content?: Record<string, never>;
+            content?: {
+                [key: string]: unknown;
+            };
         };
         /**
          * StoryArcPublic
@@ -3166,7 +3235,9 @@ export interface components {
              */
             id: string;
             /** Content */
-            content: Record<string, never>;
+            content: {
+                [key: string]: unknown;
+            };
         };
         /** StoryArcUpdate */
         StoryArcUpdate: {
@@ -3177,7 +3248,9 @@ export interface components {
             /** Sort Order */
             sort_order?: number | null;
             /** Content */
-            content?: Record<string, never> | null;
+            content?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * TimelinePoint
@@ -3271,12 +3344,16 @@ export interface components {
              * Overrides
              * @default {}
              */
-            overrides: Record<string, never>;
+            overrides: {
+                [key: string]: unknown;
+            };
             /**
              * Effective
              * @default {}
              */
-            effective: Record<string, never>;
+            effective: {
+                [key: string]: unknown;
+            };
             /** Valid Until */
             valid_until?: string | null;
         };
@@ -3288,11 +3365,17 @@ export interface components {
             /** Couple Names */
             couple_names: string;
             /** Event Details */
-            event_details: Record<string, never>;
+            event_details: {
+                [key: string]: unknown;
+            };
             /** Content */
-            content: Record<string, never>;
+            content: {
+                [key: string]: unknown;
+            };
             /** Theme Tokens */
-            theme_tokens?: Record<string, never> | null;
+            theme_tokens?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * WeddingSettingsUpdate
@@ -3397,7 +3480,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
@@ -4910,7 +4995,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -5147,6 +5234,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AiInputCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiInputRef"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_ai_input_api_w__wedding_slug__admin_ai_inputs_upload_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_ai_input_api_w__wedding_slug__admin_ai_inputs_upload_post"];
             };
         };
         responses: {
@@ -5690,7 +5814,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -6396,7 +6522,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -6427,7 +6555,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -6458,7 +6588,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -6489,7 +6621,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -6520,7 +6654,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -6551,7 +6687,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

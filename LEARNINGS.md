@@ -5,6 +5,43 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-12 — AI wizard 8.1c: media/images/guests + what the golden set caught
+**Reasoning/thinking tokens eat the output budget — the eval caught it live.**
+The first golden-set run against gpt-5.1 at effort=high truncated 10/12 drafts:
+`max_output_tokens` includes reasoning tokens, so a 4096 budget was consumed
+before the JSON finished. Both adapters now add effort-scaled headroom
+(low/medium/high → +2048/4096/8192) on top of `prompt.max_tokens`; the same
+rule applies to Claude adaptive thinking (counts against `max_tokens`). This
+is exactly the class of regression the eval exists to catch — run
+`scripts/eval_golden.py` before ANY provider/model change in production.
+
+**`response.model` is a dated snapshot id — price by the REQUESTED id.** The
+API answered `gpt-5.1` requests with a snapshot id that missed the
+per-(provider, model) price table, so every call ledgered an auditable-but-
+wrong $0. Usage rows now record the requested config id (both adapters).
+
+**Gemini's image model returns JPEG, not PNG (verified live).** Never assume
+the output format — `sniff_image_mime` reads the magic bytes before
+prepare/store, or you ship JPEG bytes under a `.png` name.
+
+**A pipeline step that repeats must key the client loop on object identity.**
+The images fan-out advances a couple of beats per /advance and stays on the
+same `job.step`; `AiRunProgress`'s effect originally depended on `job.step`
+and silently stalled mid-step. Depend on the fresh job object each response.
+
+**Transient AI-input media lives OUTSIDE the metered namespace.** Uploads go
+under `ai-inputs/<slug>` so `measure_wedding_media`/the reconcile cron never
+count PII that the reap sweep deletes; generated beat art goes in the normal
+namespace and IS metered (with bytes tracked in job.state so cancel/apply
+sweeps can refund the counter). Deleting an AiInput row must always delete
+its stored object in the same breath.
+
+**The apply allowlist is now also kind-scoped.** `SECTIONS_BY_KIND` means a
+wizard proposal smuggling a `guests` key writes no guests — the hostile-
+proposal test caught the widening the moment the guests writer landed.
+Guests apply recomputes tiers via `infer_tier()` from bounded companion
+counts; the proposal's own `invite_tier` strings are never read.
+
 ## 2026-07-12 — AI wizard 8.4b: UI + offline-dev gotchas
 **A per-request provider dependency means no per-instance state in adapters.**
 `get_job_text_model` constructs a fresh adapter every request, so the fake's

@@ -41,6 +41,12 @@ from app.obs import log_event
 
 logger = logging.getLogger("app.ai")
 
+# Adaptive-thinking tokens count against max_tokens, so the visible-output
+# budget (prompt.max_tokens) gets effort-scaled headroom on top — the same
+# truncation mode the golden-set eval caught live on the OpenAI adapter
+# (2026-07-12), fixed here symmetrically.
+THINKING_HEADROOM: dict[str, int] = {"low": 2048, "medium": 4096, "high": 8192}
+
 
 class AnthropicTextModel:
     """`client` is injectable for tests; the real SDK import is lazy so the
@@ -77,7 +83,7 @@ class AnthropicTextModel:
         try:
             response = self._get_client().messages.parse(
                 model=model,
-                max_tokens=prompt.max_tokens,
+                max_tokens=prompt.max_tokens + THINKING_HEADROOM.get(effort, 4096),
                 system=[system_block],
                 thinking={"type": "adaptive"},
                 output_config={"effort": effort},
@@ -108,7 +114,10 @@ class AnthropicTextModel:
             output=parsed,
             usage=Usage(
                 provider="anthropic",
-                model=response.model,
+                # The REQUESTED id, not response.model — the API may answer
+                # with a dated snapshot id that misses the price table and
+                # silently ledgers $0 (same golden-set finding as OpenAI).
+                model=model,
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
                 request_id=getattr(response, "_request_id", None),

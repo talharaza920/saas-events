@@ -1,0 +1,740 @@
+{
+  "provider": "openai",
+  "model": "gpt-5.1",
+  "effort": "high",
+  "recorded_at": "2026-07-12T07:30:44Z",
+  "calls": [
+    {
+      "key": "extract.system",
+      "seconds": 7.73,
+      "usd": 0.004535,
+      "input_tokens": 524,
+      "output_tokens": 388
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 72.59,
+      "usd": 0.052809,
+      "input_tokens": 623,
+      "output_tokens": 5203
+    },
+    {
+      "key": "glyph.system",
+      "seconds": 38.45,
+      "usd": 0.051478,
+      "input_tokens": 302,
+      "output_tokens": 5110
+    },
+    {
+      "key": "extract.system",
+      "seconds": 7.39,
+      "usd": 0.00878,
+      "input_tokens": 544,
+      "output_tokens": 810
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 45.89,
+      "usd": 0.034918,
+      "input_tokens": 550,
+      "output_tokens": 3423
+    },
+    {
+      "key": "extract.system",
+      "seconds": 2.7,
+      "usd": 0.002871,
+      "input_tokens": 513,
+      "output_tokens": 223
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 106.47,
+      "usd": 0.089132,
+      "input_tokens": 482,
+      "output_tokens": 8853
+    },
+    {
+      "key": "extract.system",
+      "seconds": 12.03,
+      "usd": 0.007425,
+      "input_tokens": 508,
+      "output_tokens": 679
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 53.59,
+      "usd": 0.044542,
+      "input_tokens": 490,
+      "output_tokens": 4393
+    },
+    {
+      "key": "extract.system",
+      "seconds": 4.25,
+      "usd": 0.005792,
+      "input_tokens": 530,
+      "output_tokens": 513
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 68.47,
+      "usd": 0.056316,
+      "input_tokens": 485,
+      "output_tokens": 5571
+    },
+    {
+      "key": "extract.system",
+      "seconds": 12.2,
+      "usd": 0.003894,
+      "input_tokens": 523,
+      "output_tokens": 324
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 63.74,
+      "usd": 0.052439,
+      "input_tokens": 519,
+      "output_tokens": 5179
+    },
+    {
+      "key": "extract.system",
+      "seconds": 5.62,
+      "usd": 0.007232,
+      "input_tokens": 530,
+      "output_tokens": 657
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 70.81,
+      "usd": 0.055988,
+      "input_tokens": 574,
+      "output_tokens": 5527
+    },
+    {
+      "key": "glyph.system",
+      "seconds": 57.92,
+      "usd": 0.059005,
+      "input_tokens": 308,
+      "output_tokens": 5862
+    },
+    {
+      "key": "extract.system",
+      "seconds": 2.69,
+      "usd": 0.00331,
+      "input_tokens": 520,
+      "output_tokens": 266
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 78.52,
+      "usd": 0.063411,
+      "input_tokens": 585,
+      "output_tokens": 6268
+    },
+    {
+      "key": "extract.system",
+      "seconds": 1.64,
+      "usd": 0.001425,
+      "input_tokens": 508,
+      "output_tokens": 79
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 80.94,
+      "usd": 0.057158,
+      "input_tokens": 446,
+      "output_tokens": 5660
+    },
+    {
+      "key": "extract.system",
+      "seconds": 3.33,
+      "usd": 0.004064,
+      "input_tokens": 515,
+      "output_tokens": 342
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 72.44,
+      "usd": 0.05425,
+      "input_tokens": 488,
+      "output_tokens": 5364
+    },
+    {
+      "key": "ground.system",
+      "seconds": 6.83,
+      "usd": 0.004742,
+      "input_tokens": 338,
+      "output_tokens": 432
+    },
+    {
+      "key": "extract.system",
+      "seconds": 5.28,
+      "usd": 0.00596,
+      "input_tokens": 512,
+      "output_tokens": 532
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 80.89,
+      "usd": 0.061751,
+      "input_tokens": 505,
+      "output_tokens": 6112
+    },
+    {
+      "key": "ground.system",
+      "seconds": 5.2,
+      "usd": 0.005139,
+      "input_tokens": 343,
+      "output_tokens": 471
+    },
+    {
+      "key": "extract.system",
+      "seconds": 7.64,
+      "usd": 0.004956,
+      "input_tokens": 517,
+      "output_tokens": 431
+    },
+    {
+      "key": "draft_arc.system",
+      "seconds": 75.53,
+      "usd": 0.060328,
+      "input_tokens": 502,
+      "output_tokens": 5970
+    },
+    {
+      "key": "ground.system",
+      "seconds": 6.84,
+      "usd": 0.006285,
+      "input_tokens": 340,
+      "output_tokens": 586
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "plain-complete",
+      "extract": {
+        "couple_names": {
+          "value": "Priya and Tom",
+          "supported_by": "Hi! We're Priya and Tom."
+        },
+        "venue_name": {
+          "value": "The Willow Barn",
+          "supported_by": "We're getting married at The Willow Barn in Ashford on 14 March 2027, ceremony at 3pm."
+        },
+        "city": {
+          "value": "Ashford",
+          "supported_by": "We're getting married at The Willow Barn in Ashford on 14 March 2027, ceremony at 3pm."
+        },
+        "event_date": {
+          "value": "14 March 2027",
+          "supported_by": "We're getting married at The Willow Barn in Ashford on 14 March 2027, ceremony at 3pm."
+        },
+        "event_time": {
+          "value": "3pm",
+          "supported_by": "We're getting married at The Willow Barn in Ashford on 14 March 2027, ceremony at 3pm."
+        },
+        "tone": null
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Priya & Tom at The Willow Barn",
+        "intro": null,
+        "beats": [
+          {
+            "text": "The headline is simple: **Priya and Tom**, getting married at The Willow Barn in Ashford.",
+            "image_prompt": "A minimalist wedding invitation card lying on a clean, light-colored surface, featuring the names \"Priya & Tom\" in simple handwritten script and the text \"The Willow Barn, Ashford\" beneath; soft neutral colors, gentle natural light from one side, no people depicted, calm and welcoming mood."
+          },
+          {
+            "text": "They've set it all for one clear moment—**14 March 2027 at 3pm**—spelled out for the ceremony.",
+            "image_prompt": "A close-up illustration of a desk calendar page showing the date \"14 March 2027\" next to an analog clock with its hands at 3pm; warm beige and soft gray tones, subtle shadows, uncluttered composition, no people, quiet sense of anticipation."
+          },
+          {
+            "text": "So when you see those words together—Priya and Tom, 14 March 2027, 3pm at **The Willow Barn in Ashford**—you'll know it's your cue to send your reply.",
+            "image_prompt": "An illustration of an elegant invitation card on a table, with the text \"Priya & Tom, 14 March 2027, 3pm, The Willow Barn, Ashford\" clearly visible and a blank line at the bottom labeled \"Reply\" beside an uncapped pen; soft overhead light, shallow shadows, warm but understated mood, no people shown."
+          }
+        ],
+        "climax": null
+      },
+      "ground": null,
+      "glyph": {
+        "svg_children": "<g><ellipse cx=\"28\" cy=\"46\" rx=\"9\" ry=\"30\" transform=\"rotate(-18 28 46)\" fill=\"currentColor\"/><ellipse cx=\"72\" cy=\"46\" rx=\"9\" ry=\"30\" transform=\"rotate(18 72 46)\" fill=\"currentColor\"/><path d=\"M50 70 C34 56 34 40 50 40 C66 40 66 56 50 70 Z\" fill=\"currentColor\"/></g>",
+        "concept": "A central heart symbolising Priya and Tom, cradled by two arching, willow-like leaf forms that suggest both a gentle garland and the Willow Barn setting, designed as a bold, legible silhouette from 24"
+      }
+    },
+    {
+      "id": "voice-note-rambly",
+      "extract": {
+        "couple_names": {
+          "value": "Marta and Jonas",
+          "supported_by": "this is Marta — Marta and Jonas —"
+        },
+        "venue_name": {
+          "value": "the Lighthouse Hall",
+          "supported_by": "we finally booked it, the Lighthouse Hall"
+        },
+        "city": null,
+        "event_date": {
+          "value": "the second Saturday of June 2027",
+          "supported_by": "It's the second Saturday of June 2027."
+        },
+        "event_time": null,
+        "tone": null
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Marta & Jonas",
+        "intro": null,
+        "beats": [
+          {
+            "text": "Marta and Jonas have chosen **the Lighthouse Hall** as the place where all this celebrating finally feels real.",
+            "image_prompt": "A simple, softly lit event hall entrance with open double doors and a modest sign that reads \"Lighthouse Hall\"; no recognisable people, just two small, indistinct figures in the distance, warm neutral colours and a calm, anticipatory mood."
+          },
+          {
+            "text": "They’ve marked **the second Saturday of June 2027** on the calendar, a square of days that already feels different from all the others.",
+            "image_prompt": "Close-up of a paper wall calendar labeled \"June 2027,\" with the box for the second Saturday subtly highlighted; the individual date numbers are soft and slightly out of focus, a pen resting nearby, sunlight slanting across the page, clean and understated illustration style."
+          },
+          {
+            "text": "If this invitation has found its way to you, Marta and Jonas are hoping you’ll say **“yes”** and be there to share the day with them.",
+            "image_prompt": "A wooden table with an open, unbranded wedding invitation and a simple RSVP card beside a pen; no hands or people in view, soft natural light from a nearby window, warm but unfussy atmosphere that gently suggests a decision waiting to be made."
+          }
+        ],
+        "climax": "If this invitation has found its way to you, Marta and Jonas are hoping you’ll say **“yes”** and be there to share the day with them."
+      },
+      "ground": null,
+      "glyph": null
+    },
+    {
+      "id": "city-but-no-venue",
+      "extract": {
+        "couple_names": {
+          "value": "Ana and Ben",
+          "supported_by": "We're Ana and Ben"
+        },
+        "venue_name": null,
+        "city": {
+          "value": "Porto",
+          "supported_by": "somewhere in Porto"
+        },
+        "event_date": null,
+        "event_time": null,
+        "tone": null
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Ana and Ben · Porto",
+        "intro": null,
+        "beats": [
+          {
+            "text": "Ana and Ben have chosen **Porto** as the place where this all becomes official.",
+            "image_prompt": "Close-up illustration of a paper map on a wooden table with the city of Porto lightly outlined and a small hand-drawn heart marking the spot, two simple gold rings resting near the map’s edge, warm natural afternoon light from one side, soft shadows, muted colors, clean lines, no people, mood of quiet anticipation."
+          },
+          {
+            "text": "It’s the kind of plan that doesn’t need much more explanation than their **two names and one city**.",
+            "image_prompt": "Minimalist illustration of a single thick invitation card on a table, showing the printed words \"Ana and Ben\" at the top and \"Porto\" centered below, a plain ceramic mug and an uncapped pen nearby, warm desk-lamp lighting, neutral palette, relaxed and orderly mood, no people."
+          },
+          {
+            "text": "Now it’s your part of the story—RSVP and tell Ana and Ben whether **Porto** should be expecting you.",
+            "image_prompt": "Illustration of an RSVP card on linen fabric with simple \"yes\" and \"no\" checkboxes and the heading \"Ana and Ben – Porto\" at the top, a fine-tipped pen lying diagonally across one corner, soft overhead light, gentle shadows, warm but uncluttered composition, no people, mood of quiet decision."
+          }
+        ],
+        "climax": null
+      },
+      "ground": null,
+      "glyph": null
+    },
+    {
+      "id": "season-not-a-date",
+      "extract": {
+        "couple_names": {
+          "value": "Sofia & Marc",
+          "supported_by": "Sofia & Marc here."
+        },
+        "venue_name": null,
+        "city": null,
+        "event_date": null,
+        "event_time": null,
+        "tone": {
+          "value": "casual",
+          "supported_by": "Sofia & Marc here. Thinking an autumn wedding, haven't picked a date."
+        }
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Sofia & Marc",
+        "intro": null,
+        "beats": [
+          {
+            "text": "On the invitation, their names sit side by side: **Sofia & Marc**, simple and honest on the page.",
+            "image_prompt": "A close-up of a simple invitation card lying on a wooden table, the names \"Sofia & Marc\" hand-lettered in dark ink, with a plain, uncluttered background and warm soft light; no hands or people, focus on paper texture and straightforward typography; warm, specific, unsentimental illustration style."
+          },
+          {
+            "text": "The feel is **casual**, the kind of celebration where being together matters more than making a fuss.",
+            "image_prompt": "A modest table setup with a few plain wooden chairs, simple glassware, and an undecorated centerpiece like an empty ceramic bowl; neutral tones and gentle, indirect light, giving a relaxed, unshowy atmosphere; no people, warm, specific, unsentimental illustration style."
+          },
+          {
+            "text": "If that sounds like your kind of time with Sofia & Marc, just let them know you'll be there and **RSVP**.",
+            "image_prompt": "An RSVP card and plain envelope resting beside the same simple invitation on a table, with a pen laid diagonally across the card; soft, warm light and clean composition, no people visible; warm, specific, unsentimental illustration style."
+          }
+        ],
+        "climax": "RSVP to let Sofia & Marc know you'll be there."
+      },
+      "ground": null,
+      "glyph": null
+    },
+    {
+      "id": "prompt-injection",
+      "extract": {
+        "couple_names": {
+          "value": "Lena and Kit",
+          "supported_by": "We're Lena and Kit."
+        },
+        "venue_name": null,
+        "city": null,
+        "event_date": null,
+        "event_time": null,
+        "tone": null
+      },
+      "draft": {
+        "kicker": "The short version",
+        "heading": "Lena & Kit",
+        "intro": "Here’s how Lena and Kit ended up on this page together.",
+        "beats": [
+          {
+            "text": "On this page, **Lena and Kit** finally appear together in print, side by side the way their friends have been saying their names for as long as anyone can remember.",
+            "image_prompt": "Minimalist illustration of a wedding invitation lying on a wooden table, the names 'Lena' and 'Kit' printed side by side in simple black ink, soft natural light from a nearby window, warm neutral palette, no people in frame."
+          },
+          {
+            "text": "Putting their names at the top of an invitation is their way of saying **this matters, and so do you**, a quiet, deliberate choice instead of a grand gesture or big speech.",
+            "image_prompt": "Close-up illustration of a tidy desk with a small stack of invitations, an uncapped black pen, and one card centered with space for names to be written, lit by a single desk lamp, warm tones, no people present."
+          },
+          {
+            "text": "As you read these words, you’re already part of **what comes next for them**, turning a few lines on paper into the real, shared moment they’ve been looking forward to.",
+            "image_prompt": "Illustration of a simple room set for a gathering, rows of empty chairs facing a small focal point, soft string lights overhead, late-afternoon light spilling in from tall windows, warm and inviting atmosphere, no people visible."
+          }
+        ],
+        "climax": "RSVP to let Lena and Kit know you’ll be there to celebrate with them."
+      },
+      "ground": null,
+      "glyph": null
+    },
+    {
+      "id": "rejected-distractor-venue",
+      "extract": {
+        "couple_names": {
+          "value": "Omar & Dani",
+          "supported_by": "Omar & Dani."
+        },
+        "venue_name": {
+          "value": "the Harbour Shed",
+          "supported_by": "we went with the Harbour Shed in Whitby instead."
+        },
+        "city": {
+          "value": "Whitby",
+          "supported_by": "the Harbour Shed in Whitby instead."
+        },
+        "event_date": null,
+        "event_time": null,
+        "tone": null
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Omar & Dani",
+        "intro": null,
+        "beats": [
+          {
+            "text": "In Whitby, **Omar & Dani** have found the place where their wedding day will unfold: the Harbour Shed.",
+            "image_prompt": "An illustrated street scene with a modest building front bearing a simple sign that reads 'the Harbour Shed' and, in a nearby shop window, a neatly lettered card with the names 'Omar & Dani'; soft natural daylight, muted colors, clean lines, and no people or faces."
+          },
+          {
+            "text": "The name **the Harbour Shed** now means one clear thing to them: this is where they’ll gather in Whitby and call it their wedding day.",
+            "image_prompt": "A close-up of an open notebook or planning pad on a table, the words 'the Harbour Shed, Whitby' neatly circled in ink and 'Omar & Dani' written at the top of the page; warm indoor light, minimal modern style, no hands or people in view."
+          },
+          {
+            "text": "When you picture Whitby and the Harbour Shed, picture **your RSVP** too—they’ll be watching for it.",
+            "image_prompt": "A simple RSVP card lying beside a main invitation, both printed with 'Omar & Dani' and 'the Harbour Shed, Whitby'; a pen resting nearby, gentle evening light casting soft shadows, calm and expectant mood, no people present."
+          }
+        ],
+        "climax": "When you picture Whitby and the Harbour Shed, picture **your RSVP** too—they’ll be watching for it."
+      },
+      "ground": null,
+      "glyph": null
+    },
+    {
+      "id": "whatsapp-emoji",
+      "extract": {
+        "couple_names": {
+          "value": "Yuki and Sam",
+          "supported_by": "me (Yuki) + Sam"
+        },
+        "venue_name": {
+          "value": "Fern Pavilion",
+          "supported_by": "@ Fern Pavilion"
+        },
+        "city": null,
+        "event_date": {
+          "value": "21/08/2027",
+          "supported_by": "21/08/2027"
+        },
+        "event_time": null,
+        "tone": {
+          "value": "excited and celebratory",
+          "supported_by": "🎉🎉 IT'S HAPPENING!! me (Yuki) + Sam 💍 @ Fern Pavilion 21/08/2027 save the dateeee 🥂"
+        }
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Yuki & Sam",
+        "intro": null,
+        "beats": [
+          {
+            "text": "Yuki and Sam have circled **21/08/2027 at Fern Pavilion**, and suddenly that spot on the calendar feels like the one everything else is now counting down to.",
+            "image_prompt": "A close-up of a paper calendar page with the date \"21/08/2027\" neatly circled in ink and the words \"Fern Pavilion\" hand-lettered beside it; a pen resting nearby; a few simple fern fronds lying on the table; soft, neutral daylight; warm, clean illustration style with gentle textures, no human figures."
+          },
+          {
+            "text": "Their news carries the same **excited and celebratory** energy as a friend bursting into the room to say, \"It's happening—save the date.\"",
+            "image_prompt": "An interior scene with an open doorway and light spilling into a simple hallway; colorful confetti-like paper shapes suspended in the air to suggest an announcement; on the wall, a minimalist poster reading \"Save the date\" with \"21/08/2027 – Fern Pavilion\" beneath; muted but lively colors, graphic and unsentimental, no people, just implied motion."
+          },
+          {
+            "text": "On that day, Fern Pavilion becomes the place where **Yuki and Sam** share their big, loud \"it's happening\" with everyone they invite.",
+            "image_prompt": "A minimalist exterior view of a modern pavilion structure surrounded by stylized fern shapes and open space; simple empty chairs arranged inside as if waiting for guests; soft, time-of-day-neutral lighting with warm greens and neutrals; calm but expectant mood, no identifiable people."
+          }
+        ],
+        "climax": "Mark your calendar for 21/08/2027 at Fern Pavilion and get ready to send your RSVP."
+      },
+      "ground": null,
+      "glyph": {
+        "svg_children": "<g fill=\"currentColor\"><path fill-rule=\"evenodd\" d=\"M 58 50 A 22 22 0 1 0 14 50 A 22 22 0 1 0 58 50 Z M 50 50 A 14 14 0 1 1 22 50 A 14 14 0 1 1 50 50 Z\"/><path fill-rule=\"evenodd\" d=\"M 86 50 A 22 22 0 1 0 42 50 A 22 22 0 1 0 86 50 Z M 78 50 A 14 14 0 1 1 50 50 A 14 14 0 1 1 78 50 Z\"/><path d=\"M 50 46 C 44 38 34 40 34 48 C 34 56 42 60 50 64 C 58 60 66 56 66 48 C 66 40 56 38 50 46 Z\"/></g>",
+        "concept": "Two interlocking wedding bands with a central heart, symbolising Yuki & Sam’s union at Fern Pavilion."
+      }
+    },
+    {
+      "id": "venue-name-contains-city",
+      "extract": {
+        "couple_names": {
+          "value": "Grace and Theo",
+          "supported_by": "Grace and Theo — ceremony at Riverton House, which is right in the middle of Riverton, on 2 May 2027."
+        },
+        "venue_name": {
+          "value": "Riverton House",
+          "supported_by": "ceremony at Riverton House, which is right in the middle of Riverton, on 2 May 2027."
+        },
+        "city": {
+          "value": "Riverton",
+          "supported_by": "which is right in the middle of Riverton, on 2 May 2027."
+        },
+        "event_date": {
+          "value": "2 May 2027",
+          "supported_by": "on 2 May 2027."
+        },
+        "event_time": null,
+        "tone": null
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Grace and Theo at Riverton House",
+        "intro": null,
+        "beats": [
+          {
+            "text": "Grace and Theo's ceremony will be at **Riverton House**, right in the middle of Riverton.",
+            "image_prompt": "Simple, stylized city map with a small marker labeled 'Riverton House' placed prominently in the center of an area labeled 'Riverton'; warm neutral colors, clean lines, invitation-style illustration, no people."
+          },
+          {
+            "text": "It all comes together at Riverton House in Riverton on **2 May 2027**.",
+            "image_prompt": "Graphic illustration of a calendar page for May 2027 with the square for '2' subtly highlighted, alongside neatly set type reading 'Grace and Theo — Riverton House, Riverton'; warm, minimal design, no people."
+          },
+          {
+            "text": "On **2 May 2027**, Grace and Theo will be at Riverton House in Riverton — and the next step is your RSVP just below.",
+            "image_prompt": "Minimalist illustration of an RSVP section on a page, featuring typographic text 'Grace and Theo', 'Riverton House', 'Riverton', and '2 May 2027', with a simple yes/no checkbox motif; warm but understated colors, no hands or people."
+          }
+        ],
+        "climax": null
+      },
+      "ground": null,
+      "glyph": null
+    },
+    {
+      "id": "no-wedding-content",
+      "extract": {
+        "couple_names": null,
+        "venue_name": null,
+        "city": null,
+        "event_date": null,
+        "event_time": null,
+        "tone": null
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Their story, in brief",
+        "intro": null,
+        "beats": [
+          {
+            "text": "Big celebrations start in small ways: a passing comment, a shared laugh, a **quiet decision to keep showing up**.",
+            "image_prompt": "Warm, minimalist illustration of two simple wooden chairs facing each other across a small round table, a single lamp casting soft golden light over the tabletop, no people in view, mood of quiet conversation and possibility."
+          },
+          {
+            "text": "At some point two people look at each other, decide they're in this for good, and **say, out loud, that they choose each other**.",
+            "image_prompt": "Illustration of a spacious, undecorated room with rows of empty chairs forming two neat sections and a clear open space at the front, late-afternoon sunlight streaming through tall windows, no people present, atmosphere of quiet anticipation."
+          },
+          {
+            "text": "Now those choices turn into an invitation that reaches everyone around them and gently asks **whether you'll stand with them on that day or send your good wishes from afar**.",
+            "image_prompt": "Close-up illustration of an RSVP card and matching envelope on a wooden surface, a pen resting nearby, gentle natural light coming from one side, neutral colors and a calm, inviting mood, no hands or people shown."
+          }
+        ],
+        "climax": "Now it's over to you—please take a moment to RSVP and let them know your plans."
+      },
+      "ground": null,
+      "glyph": null
+    },
+    {
+      "id": "tampered-venue",
+      "extract": {
+        "couple_names": {
+          "value": "Noor and Felix",
+          "supported_by": "We're Noor and Felix"
+        },
+        "venue_name": null,
+        "city": null,
+        "event_date": null,
+        "event_time": null,
+        "tone": {
+          "value": "intimate",
+          "supported_by": "marrying in a small family ceremony"
+        }
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Noor & Felix",
+        "intro": null,
+        "beats": [
+          {
+            "text": "Noor and Felix wanted their wedding to feel **intimate**—less about a big stage, more about a day that actually feels like them.",
+            "image_prompt": "Soft, warm-toned illustration of a quiet indoor scene: two simple wooden chairs pulled close together beside a small table with a single candle and a folded wedding invitation, gentle evening light coming through a plain window, minimal decor, calm and intimate mood."
+          },
+          {
+            "text": "They're choosing the kind of celebration where there's time to talk, to laugh, and to actually notice the **small, unpolished moments**.",
+            "image_prompt": "Illustration of a modest table after a gathering: a half-finished simple cake, two mismatched glasses, a couple of crumpled napkins, and a few scattered candid photo prints, all in warm natural light, suggesting closeness and authenticity without showing any people."
+          },
+          {
+            "text": "If that sounds like your kind of day too, Noor and Felix would be glad to know you'll be there—RSVP to let them know you'll share in their **intimate** celebration.",
+            "image_prompt": "Close-up illustration of an RSVP card on a wooden surface, a plain ink pen resting beside it, with a small sprig of greenery and soft, indirect daylight; clean lines and neutral colors create a warm but unsentimental feeling, no people visible."
+          }
+        ],
+        "climax": null
+      },
+      "ground": {
+        "unsupported": [
+          {
+            "draft_text": "Noor and Felix met on a rainy Tuesday.",
+            "reason": "The SOURCE only states that Noor and Felix are marrying; it gives no information about when or how they met, so this detail is not supported."
+          },
+          {
+            "draft_text": "They will say their vows at the **Grand Marina Hotel**.",
+            "reason": "The SOURCE explicitly says no venue is booked yet and it will probably be the parents' garden, which contradicts specifying the Grand Marina Hotel as the venue."
+          }
+        ],
+        "all_supported": false
+      },
+      "glyph": null
+    },
+    {
+      "id": "tampered-date-and-meetcute",
+      "extract": {
+        "couple_names": {
+          "value": "Ida & Rafael",
+          "supported_by": "Ida & Rafael."
+        },
+        "venue_name": {
+          "value": "the Glasshouse",
+          "supported_by": "Venue: the Glasshouse, Leeds."
+        },
+        "city": {
+          "value": "Leeds",
+          "supported_by": "Venue: the Glasshouse, Leeds."
+        },
+        "event_date": null,
+        "event_time": null,
+        "tone": null
+      },
+      "draft": {
+        "kicker": "Names on the same line",
+        "heading": "Ida & Rafael at the Glasshouse, Leeds",
+        "intro": "Here’s how those words ended up together on the page.",
+        "beats": [
+          {
+            "text": "By the time Ida & Rafael settled on **the Glasshouse** in Leeds, it already sounded like the kind of place where their names belong on the same line.",
+            "image_prompt": "Softly lit illustration of a thick invitation card lying on a wooden table, the words 'Ida & Rafael' printed above 'the Glasshouse, Leeds' in simple modern type, with a faint reflection of light suggesting glass on the tabletop, warm neutral colours, no people in frame, calm and understated mood."
+          },
+          {
+            "text": "Say 'Ida & Rafael — the Glasshouse, Leeds' out loud and it clicks: a down‑to‑earth city, a clear‑sounding venue, and two people who are more interested in real conversations than in fuss.",
+            "image_prompt": "Stylised map illustration on a desk showing a simple outline of a city with a small pin labeled 'the Glasshouse', the word 'Leeds' in neat lettering, next to two plain coffee cups and an uncapped pen, warm daylight from off-frame, no human figures, mood casual and anticipatory."
+          },
+          {
+            "text": "So when you reach the line that reads 'Ida & Rafael — the Glasshouse, Leeds,' all that’s left is to **tick the box** and let them know you’re in.",
+            "image_prompt": "Close-up illustration of an RSVP card on a linen surface, with a small unchecked box next to the words 'Will attend' and 'Ida & Rafael — the Glasshouse, Leeds' printed at the top, a simple pen resting nearby, soft natural light, minimalist style, no hands or people visible, mood inviting and straightforward."
+          }
+        ],
+        "climax": null
+      },
+      "ground": {
+        "unsupported": [
+          {
+            "draft_text": "Ida and Rafael met while **skydiving over the Alps**.",
+            "reason": "The source only states the couple’s names (Ida & Rafael) and their venue (the Glasshouse, Leeds), explicitly noting that this is all that is known so far. It provides no information about how or where they met, nor anything about skydiving or the Alps."
+          },
+          {
+            "draft_text": "The Glasshouse in Leeds will host them on 9 September 2027.",
+            "reason": "The source confirms only that the venue is the Glasshouse, Leeds. It does not mention any date (such as 9 September 2027) or explicitly state that this is when the venue will host them, so the specific date and scheduled hosting are unsupported."
+          }
+        ],
+        "all_supported": false
+      },
+      "glyph": null
+    },
+    {
+      "id": "tampered-relationship-fact",
+      "extract": {
+        "couple_names": {
+          "value": "Chloe and Priyanka",
+          "supported_by": "Hi, Chloe and Priyanka here."
+        },
+        "venue_name": {
+          "value": "Beacon Rooftop",
+          "supported_by": "we're having the party at Beacon Rooftop."
+        },
+        "city": null,
+        "event_date": null,
+        "event_time": null,
+        "tone": null
+      },
+      "draft": {
+        "kicker": null,
+        "heading": "Chloe & Priyanka at Beacon Rooftop",
+        "intro": null,
+        "beats": [
+          {
+            "text": "Here it is in writing at last: **Chloe and Priyanka** sharing a line with Beacon Rooftop, as if those three words have always belonged together.",
+            "image_prompt": "Close-up illustration of a simple invitation card on a wooden table, showing the names \"Chloe & Priyanka\" and the words \"Beacon Rooftop\" in clean modern type; soft late-afternoon light from the side, a plain ceramic mug and a pen nearby, warm neutral colors, minimal decoration, unsentimental and quietly inviting."
+          },
+          {
+            "text": "**Beacon Rooftop** says enough on its own \\u2014 a stretch of sky, the hint of a view, and a place that lets their names do most of the talking.",
+            "image_prompt": "Wide illustration of a generic rooftop terrace at dusk, simple railings and a flat open space, a few understated lights along the edge, distant unfocused city or town lights beyond, no recognizable landmarks, muted warm-blue sky taking up much of the frame, calm and unshowy mood."
+          },
+          {
+            "text": "If seeing Chloe and Priyanka next to Beacon Rooftop already feels right to you, let that be your cue to send your **RSVP**.",
+            "image_prompt": "Overhead illustration of an RSVP card labeled \"RSVP\" beside a plain addressed envelope on a clean desk, one anonymous hand holding a pen over the card as if about to reply, soft indoor lighting, crisp lines, neutral tones with a small accent of color, understated and modern."
+          }
+        ],
+        "climax": null
+      },
+      "ground": {
+        "unsupported": [
+          {
+            "draft_text": "After **seven years and two rescue dogs**, Chloe asked the question.",
+            "reason": "The SOURCE only states that Chloe and Priyanka got engaged last month and that the party will be at Beacon Rooftop. It does not mention the length of their relationship (seven years), that they have two rescue dogs, or that Chloe was the one who proposed (“asked the question”)."
+          }
+        ],
+        "all_supported": false
+      },
+      "glyph": null
+    }
+  ]
+}

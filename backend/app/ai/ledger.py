@@ -38,7 +38,7 @@ def record_usage(
         input_tokens=usage.input_tokens,
         output_tokens=usage.output_tokens,
         images=images,
-        cost_usd_micros=cost_usd_micros(usage),
+        cost_usd_micros=cost_usd_micros(usage, images=images),
         provider_request_id=usage.request_id,
     )
     db.add(row)

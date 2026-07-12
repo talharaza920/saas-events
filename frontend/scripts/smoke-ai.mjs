@@ -150,7 +150,43 @@ ok(
 );
 await page.screenshot({ path: `${OUT}/ai-cover-mark.png` });
 
-// --- 3. Platform AI console ---------------------------------------------------
+// --- 3. Guest-list run: raw markers in, deterministic tiers out ---------------
+await page.goto("http://localhost:3000/alex-and-sam/admin", { waitUntil: "networkidle0" });
+await sleep(1500);
+await clickText('button[role="tab"]', "AI");
+await sleep(800);
+// The label button wraps a hidden <input type=file>, so it isn't a leaf —
+// match the button + its input directly rather than via visibleHas.
+ok(
+  "guests run: attach-files control present",
+  await page.evaluate(() =>
+    [...document.querySelectorAll("button, label")].some(
+      (b) => b.textContent.includes("Attach files") && b.querySelector('input[type="file"]'),
+    ),
+  ),
+);
+ok(
+  "guests run: textarea present",
+  await typeStory("Required for a story chapter", "Jordan, Riley +1, Casey and family"),
+);
+await clickText("button", "Extract a guest list");
+ok("guests run: reaches review", await waitFor("Guest list"));
+ok(
+  "guests run: names + owner-facing tier chips shown",
+  (await visibleHas("Riley Park")) && (await visibleHas("Family")),
+);
+await page.screenshot({ path: `${OUT}/ai-guests-review.png` });
+await clickText("button", "Apply");
+ok("guests run: applied", await waitFor("Applied to your wedding"));
+const guestRows = await api("/api/w/alex-and-sam/admin/guests");
+const riley = guestRows.find((g) => g.name === "Riley Park");
+const casey = guestRows.find((g) => g.name === "Casey Nguyen");
+ok(
+  "guests run: rows persisted with tiers from the +1/kid markers (never the model)",
+  riley?.invite_tier === "plus_one" && casey?.invite_tier === "plus_family",
+);
+
+// --- 4. Platform AI console ---------------------------------------------------
 await page.goto("http://localhost:3000/platform", { waitUntil: "networkidle0" });
 await sleep(1200);
 await clickText('button[role="tab"]', "AI");
@@ -160,7 +196,7 @@ ok("platform AI: breaker + usage + prompts render",
 ok("platform AI: registry lists the pipeline keys", await visibleHas("draft_arc.system"));
 await page.screenshot({ path: `${OUT}/ai-platform-console.png` });
 
-// --- 4. /create with a story: wedding first, then the wizard inline ----------
+// --- 5. /create with a story: wedding first, then the wizard inline ----------
 await page.goto("http://localhost:3000/create", { waitUntil: "networkidle0" });
 await sleep(800);
 const names = `Smoke & Test ${Date.now() % 100000}`; // unique slug per run

@@ -50,6 +50,12 @@ interface ProposalGlyph {
   svg_children?: string;
   concept?: string;
 }
+interface ProposalGuest {
+  name?: string;
+  invite_tier?: string;
+  adult_companions?: number;
+  child_companions?: number;
+}
 
 function rec(v: unknown): Record<string, unknown> {
   return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
@@ -63,6 +69,7 @@ function sectionsOf(job: AiJobAdmin): string[] {
   if (Object.keys(rec(p.event_details)).length > 0) out.push("event_details");
   if (Object.keys(rec(p.story_arc)).length > 0) out.push("story_arc");
   if (Object.keys(rec(p.glyph)).length > 0) out.push("glyph");
+  if (Array.isArray(p.guests) && p.guests.length > 0) out.push("guests");
   return out;
 }
 
@@ -71,6 +78,14 @@ const SECTION_LABELS: Record<string, string> = {
   event_details: "Event details",
   story_arc: "Your story",
   glyph: "Your mark",
+  guests: "Guest list",
+};
+
+// Owner-facing tier names (tiers are OWNER-facing metadata; guests never see them).
+const TIER_LABELS: Record<string, string> = {
+  solo: "Solo",
+  plus_one: "+1",
+  plus_family: "Family",
 };
 
 /**
@@ -131,7 +146,13 @@ export default function AiReviewPanel({
 
   const regenerate = (artifact: AiArtifact) =>
     run(`regen:${artifact}`, async () => {
-      await aiApi.regenerate(job.id, artifact, steer[artifact]);
+      const variant = await aiApi.regenerate(job.id, artifact, steer[artifact]);
+      // A new beat image is what the couple just asked to see — select it
+      // (the previous one stays one click away in the variant strip). Text
+      // and glyph keep the compare-then-pick flow.
+      if (artifact.startsWith("arc.beat.")) {
+        await aiApi.selectVariant(job.id, artifact, variant.id);
+      }
       setSteer((s) => ({ ...s, [artifact]: "" }));
       onJob(await aiApi.getJob(job.id));
       loadCredits();
@@ -206,6 +227,13 @@ export default function AiReviewPanel({
   const arc = rec(proposal.story_arc) as ProposalArc;
   const glyph = rec(proposal.glyph) as ProposalGlyph;
   const details = rec(proposal.event_details);
+  const beatImages = rec(proposal.beat_images) as Record<string, string>;
+  const guests = (Array.isArray(proposal.guests) ? proposal.guests : []).map(
+    (g) => rec(g) as ProposalGuest,
+  );
+  const guestsUnresolved = Array.isArray(proposal.guests_unresolved)
+    ? proposal.guests_unresolved.map(String)
+    : [];
   const pickedCount = sections.filter((s) => checked[s]).length;
 
   const sectionHeader = (key: string, subtitle: string) => (
@@ -278,7 +306,14 @@ export default function AiReviewPanel({
                   />
                   {busy === `select:${v.id}` && <CircularProgress size={14} />}
                 </Stack>
-                {artifact === "glyph" ? (
+                {v.image_url ? (
+                  <Box
+                    component="img"
+                    src={v.image_url}
+                    alt="Illustration option"
+                    sx={{ width: "100%", borderRadius: 1, display: "block" }}
+                  />
+                ) : artifact === "glyph" ? (
                   <>
                     <GlyphMark svg={String(c.svg_children ?? "")} size={56} />
                     <Typography variant="caption" color="text.secondary">
@@ -376,21 +411,55 @@ export default function AiReviewPanel({
               )}
               <Typography variant="h6">{arc.heading}</Typography>
               {arc.intro && <Typography color="text.secondary">{arc.intro}</Typography>}
-              <Stack spacing={1} sx={{ my: 1.5 }}>
+              <Stack spacing={1.5} sx={{ my: 1.5 }}>
                 {(arc.beats ?? []).map((b, i) => {
                   const flagged = flaggedTexts.has(String(b.text ?? ""));
+                  const image = beatImages[String(i)];
+                  const beatArtifact = `arc.beat.${i}` as AiArtifact;
                   return (
                     <Stack key={i} direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
                       <Chip size="small" label={String(i + 1).padStart(2, "0")} variant="outlined" />
-                      <Typography variant="body2" sx={{ pt: 0.25 }}>
-                        {b.text}
-                        {flagged && (
-                          <WarningAmberIcon
-                            color="warning"
-                            sx={{ fontSize: 16, verticalAlign: "text-bottom", ml: 0.5 }}
+                      <Stack spacing={0.75} sx={{ flexGrow: 1, minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ pt: 0.25 }}>
+                          {b.text}
+                          {flagged && (
+                            <WarningAmberIcon
+                              color="warning"
+                              sx={{ fontSize: 16, verticalAlign: "text-bottom", ml: 0.5 }}
+                            />
+                          )}
+                        </Typography>
+                        {image && (
+                          <Box
+                            component="img"
+                            src={image}
+                            alt={`Illustration for beat ${i + 1}`}
+                            sx={{ width: 160, borderRadius: 1, display: "block" }}
                           />
                         )}
-                      </Typography>
+                        {/* Image actions only when this run produced art at
+                            all — a keyless/skipped run stays text-only rather
+                            than offering a button that can only fail. */}
+                        {Object.keys(beatImages).length > 0 && (image || b.image_prompt) && (
+                          <Box>
+                            <Button
+                              size="small"
+                              startIcon={
+                                busy === `regen:${beatArtifact}` ? (
+                                  <CircularProgress size={14} />
+                                ) : (
+                                  <AutoAwesomeIcon sx={{ fontSize: 16 }} />
+                                )
+                              }
+                              disabled={busy !== null}
+                              onClick={() => regenerate(beatArtifact)}
+                            >
+                              {image ? "Redo this image" : "Illustrate this beat"}
+                            </Button>
+                          </Box>
+                        )}
+                        {variantStrip(beatArtifact)}
+                      </Stack>
                     </Stack>
                   );
                 })}
@@ -428,6 +497,44 @@ export default function AiReviewPanel({
             <Divider flexItem />
             {variantStrip("glyph")}
             {steerBox("glyph")}
+          </Stack>
+        </Paper>
+      )}
+
+      {sections.includes("guests") && (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack spacing={1.5}>
+            {sectionHeader(
+              "guests",
+              "New guest rows with invite links — +1 and kids allowances come from your own markers, never guessed",
+            )}
+            <Stack spacing={0.75} sx={{ pl: 5.5 }}>
+              {guests.map((g, i) => (
+                <Stack key={i} direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                  <Typography variant="body2" sx={{ minWidth: 160 }}>
+                    {g.name}
+                  </Typography>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={TIER_LABELS[g.invite_tier ?? ""] ?? g.invite_tier}
+                  />
+                  {(g.child_companions ?? 0) > 0 && (
+                    <Typography variant="caption" color="text.secondary">
+                      {g.adult_companions} adult{(g.adult_companions ?? 0) === 1 ? "" : "s"} +{" "}
+                      {g.child_companions} kid{(g.child_companions ?? 0) === 1 ? "" : "s"}
+                    </Typography>
+                  )}
+                </Stack>
+              ))}
+            </Stack>
+            {guestsUnresolved.length > 0 && (
+              <Alert severity="info">
+                Couldn&apos;t match {guestsUnresolved.length === 1 ? "this entry" : "these entries"}{" "}
+                to a listed guest, so {guestsUnresolved.length === 1 ? "it was" : "they were"}{" "}
+                skipped: {guestsUnresolved.join(", ")}. Add them from the Guests tab if needed.
+              </Alert>
+            )}
           </Stack>
         </Paper>
       )}

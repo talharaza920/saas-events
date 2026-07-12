@@ -23,9 +23,10 @@ The allowlist — adding a path means adding a writer function here:
                    left alone — switching the cover to the SVG is the owner's
                    call in the 8.4 UI)
 
-The `guests` writer lands with the `guests` job kind (8.1c): names only, tier
-from the deterministic guest_import.infer_tier(), never from the model, and
-`story_arc_ids` never AI-populated (that's how tier stays unleakable).
+  guests         → new `guests` rows: names only, tier RECOMPUTED here by the
+                   deterministic guest_import.infer_tier() (never read from
+                   the proposal, never from the model), `story_arc_ids` never
+                   AI-populated (that's how tier stays unleakable)
 """
 from __future__ import annotations
 
@@ -34,21 +35,37 @@ import json
 
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.jobs import sweep_generated_images
 from app.ai.schemas import DraftArc
 from app.ai.svg import SvgSanitizationError, sanitize_glyph
 from app.approval import get_approval_rules
 from app.audit_log import record
+from app.config import Settings
 from app.entitlements import check_limit
-from app.models import AiJob, AiJobStatus, StoryArc, Wedding
+from app.guest_import import infer_tier, make_guest_slug
+from app.models import AiInput, AiJob, AiJobStatus, Guest, StoryArc, Wedding
+from app.storage import delete_media_object
 
 # Order is apply order (names/details before the arc that may mention them).
-APPLY_SECTIONS = ("couple_names", "event_details", "story_arc", "glyph")
+APPLY_SECTIONS = ("couple_names", "event_details", "story_arc", "glyph", "guests")
+
+# What each job KIND may legitimately write. A section a kind's pipeline never
+# produces is unreachable even if a stored proposal grows the key — a wizard
+# proposal smuggling a "guests" list writes no guests.
+SECTIONS_BY_KIND: dict[str, tuple[str, ...]] = {
+    "wizard": ("couple_names", "event_details", "story_arc"),
+    "story_arc": ("story_arc",),
+    "glyph": ("glyph",),
+    "guests": ("guests",),
+}
 
 
 def apply_proposal(
     db: Session,
+    settings: Settings,
     wedding: Wedding,
     job: AiJob,
     *,
@@ -72,7 +89,11 @@ def apply_proposal(
             status_code=422,
             detail=f"Unknown apply selection(s): {', '.join(repr(s) for s in unknown)}",
         )
-    wanted = [s for s in APPLY_SECTIONS if s in requested and proposal.get(s) is not None]
+    allowed_for_kind = SECTIONS_BY_KIND.get(job.kind, ())
+    wanted = [
+        s for s in APPLY_SECTIONS
+        if s in requested and s in allowed_for_kind and proposal.get(s) is not None
+    ]
     if not wanted:
         raise HTTPException(status_code=422, detail="Nothing in this proposal matches the selection")
 
@@ -86,8 +107,9 @@ def apply_proposal(
         wrote = {
             "couple_names": lambda: _apply_couple_names(wedding, content, proposal),
             "event_details": lambda: _apply_event_details(wedding, proposal),
-            "story_arc": lambda: _apply_story_arc(db, wedding, proposal),
+            "story_arc": lambda: _apply_story_arc(db, settings, wedding, proposal),
             "glyph": lambda: _apply_glyph(content, proposal),
+            "guests": lambda: _apply_guests(db, wedding, proposal),
         }[section]()
         if wrote:
             applied.append(section)
@@ -96,6 +118,14 @@ def apply_proposal(
 
     wedding.content = content
     job.status = AiJobStatus.APPLIED
+    # APPLIED is terminal too: raw submissions (voice notes, PDFs — PII) go
+    # now, and generated beat images the applied arc didn't keep are freed.
+    for inp in db.execute(select(AiInput).where(AiInput.job_id == job.id)).scalars():
+        if inp.storage_url:
+            delete_media_object(settings, inp.storage_url)
+        db.delete(inp)
+    kept = set(_applied_image_urls(settings, proposal)) if "story_arc" in applied else set()
+    sweep_generated_images(db, settings, job, keep=kept)
     record(
         db, "ai.job.apply", user=user, wedding=wedding,
         target_type="ai_job", target_id=job.id,
@@ -170,7 +200,35 @@ def _apply_event_details(wedding: Wedding, proposal: dict) -> bool:
     return changed
 
 
-def _apply_story_arc(db: Session, wedding: Wedding, proposal: dict) -> bool:
+def _applied_image_urls(settings: Settings, proposal: dict) -> list[str]:
+    """Exactly the beat-image URLs the story_arc writer wrote (same
+    validation), so the post-apply sweep keeps those and only those."""
+    arc = proposal.get("story_arc") or {}
+    beats = arc.get("beats") if isinstance(arc, dict) else None
+    count = len(beats) if isinstance(beats, list) else 0
+    urls = (_beat_image(settings, proposal, i) for i in range(count))
+    return [u for u in urls if u]
+
+
+def _beat_image(settings: Settings, proposal: dict, index: int) -> str | None:
+    """The proposal's image URL for beat `index`, or None. Defence in depth on
+    stored JSON: only a URL our own storage minted (local /media mount or the
+    Supabase public bucket) is ever written where a page will render it."""
+    images = proposal.get("beat_images")
+    url = images.get(str(index)) if isinstance(images, dict) else None
+    if not isinstance(url, str) or not url.strip() or len(url) > 500:
+        return None
+    url = url.strip()
+    allowed = [f"{settings.media_base_url.rstrip('/')}/media/"]
+    if settings.supabase_url:
+        allowed.append(
+            f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public/"
+            f"{settings.supabase_storage_bucket}/"
+        )
+    return url if any(url.startswith(p) for p in allowed) else None
+
+
+def _apply_story_arc(db: Session, settings: Settings, wedding: Wedding, proposal: dict) -> bool:
     try:
         draft = DraftArc.model_validate(proposal.get("story_arc"))
     except ValidationError:
@@ -182,13 +240,18 @@ def _apply_story_arc(db: Session, wedding: Wedding, proposal: dict) -> bool:
         db, wedding, "max_story_arcs",
         current_count=len(wedding.story_arcs), adding=1,
     )
+    beats = []
+    for i, beat in enumerate(draft.beats):
+        entry: dict = {"text": beat.text}
+        image = _beat_image(settings, proposal, i)
+        if image:  # beats without art render as feathered text panels
+            entry["image"] = image
+        beats.append(entry)
     arc_content = {
         "kicker": draft.kicker,
         "heading": draft.heading,
         "intro": draft.intro,
-        # Beats are numbered by position on render; image URLs arrive when the
-        # images step lands (8.1c) — text-only beats render as feathered panels.
-        "beats": [{"text": beat.text} for beat in draft.beats],
+        "beats": beats,
         "climax": {"text": draft.climax} if draft.climax else None,
         "ai_generated": True,  # provenance, stamped on every row apply creates
     }
@@ -201,6 +264,71 @@ def _apply_story_arc(db: Session, wedding: Wedding, proposal: dict) -> bool:
             content=arc_content,
         )
     )
+    return True
+
+
+def _clamped_int(value, *, lo: int = 0, hi: int = 10) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return lo
+    return min(max(value, lo), hi)
+
+
+def _unique_guest_slug(db: Session) -> str:
+    """A fresh 128-bit slug (the guest's only credential); the collision retry
+    is for form, not expectation."""
+    while True:
+        slug = make_guest_slug()
+        if db.execute(select(Guest.id).where(Guest.slug == slug)).first() is None:
+            return slug
+
+
+def _apply_guests(db: Session, wedding: Wedding, proposal: dict) -> bool:
+    """Create shell guest rows from the proposal. The tier is RECOMPUTED here
+    from the bounded companion counts via the same deterministic infer_tier()
+    the spreadsheet import uses — a tampered `invite_tier` string in stored
+    proposal JSON is ignored by construction. `story_arc_ids` stays NULL
+    (default visibility); AI never targets arcs at guests."""
+    entries = proposal.get("guests")
+    if not isinstance(entries, list) or not entries:
+        return False
+    if len(entries) > 300:
+        raise HTTPException(
+            status_code=422, detail="This guest proposal is malformed — regenerate it"
+        )
+    drafts: list[tuple[str, int, int]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        drafts.append(
+            (
+                name.strip()[:120],
+                _clamped_int(entry.get("adult_companions")),
+                _clamped_int(entry.get("child_companions")),
+            )
+        )
+    if not drafts:
+        return False
+    # Re-check at apply time, like max_story_arcs above.
+    check_limit(
+        db, wedding, "max_guests",
+        current_count=len(wedding.guests), adding=len(drafts),
+    )
+    for name, adults, kids in drafts:
+        db.add(
+            Guest(
+                wedding_id=wedding.id,
+                slug=_unique_guest_slug(db),
+                name=name,
+                greeting_name=name,
+                invite_tier=infer_tier(adults, kids),  # code, never the proposal
+                expected_party_size=1 + adults + kids,
+                invited=True,
+                seed_meta={"ai_generated": True},  # provenance on every row
+            )
+        )
     return True
 
 

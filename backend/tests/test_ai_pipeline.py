@@ -117,7 +117,7 @@ def test_one_active_job_and_idempotency(db_session):
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-active")
     job = create_job(db_session, _settings(), w, kind="wizard", idempotency_key="k1")
-    assert (job.status, job.steps_total, job.credits_held) == ("queued", 5, 0)  # free arc
+    assert (job.status, job.steps_total, job.credits_held) == ("queued", 6, 0)  # free arc
 
     # Same key → same job, no second charge; new key → 409 (DB partial index).
     assert create_job(db_session, _settings(), w, kind="wizard", idempotency_key="k1").id == job.id
@@ -138,7 +138,7 @@ def test_credits_free_arc_then_charge_then_refuse(db_session):
 
     first = create_job(db_session, s, w, kind="wizard")
     assert first.credits_held == 0  # the included free arc
-    cancel_job(db_session, first)  # cancelled = refunded AND frees the allowance…
+    cancel_job(db_session, s, first)  # cancelled = refunded AND frees the allowance…
 
     free_again = create_job(db_session, s, w, kind="wizard")
     assert free_again.credits_held == 0  # …so the next run is still free
@@ -182,7 +182,7 @@ def test_wizard_runs_to_review_with_proposal(db_session):
     job = _run_to_review(db_session, s, job, fake)
 
     assert job.status == "awaiting_review"
-    assert job.step == job.steps_total == 5
+    assert job.step == job.steps_total == 6
     # Transcribe: media→text before any model call; the input keeps its transcript.
     db_session.refresh(inp)
     assert "Fern Hall" in inp.transcript
@@ -296,10 +296,10 @@ def test_cancel_and_expiry_refund(db_session):
     s = _settings()
 
     job = create_job(db_session, s, w, kind="wizard")
-    cancelled = cancel_job(db_session, job)
+    cancelled = cancel_job(db_session, s, job)
     assert cancelled.status == "cancelled" and cancelled.credits_held == 0
     with pytest.raises(HTTPException):  # cancelling twice conflicts
-        cancel_job(db_session, cancelled)
+        cancel_job(db_session, s, cancelled)
 
     job2 = create_job(db_session, s, w, kind="wizard")
     job2.expires_at = utcnow() - timedelta(minutes=1)

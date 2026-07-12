@@ -113,8 +113,9 @@ export type AiJobAdmin = Omit<components["schemas"]["AiJobAdmin"], "proposal" | 
 };
 export type AiApplyResult = components["schemas"]["AiApplyResult"];
 export type AiCreditsInfo = components["schemas"]["AiCreditsInfo"];
-export type AiJobKind = "wizard" | "story_arc" | "glyph";
-export type AiArtifact = "arc.text" | "glyph";
+export type AiJobKind = "wizard" | "story_arc" | "glyph" | "guests";
+// arc.beat.N = that beat's generated image.
+export type AiArtifact = "arc.text" | "glyph" | `arc.beat.${number}`;
 
 /** Flatten an answer value to a display string (any question type). */
 export function formatAnswer(v: AnswerValue | null | undefined): string {
@@ -254,6 +255,8 @@ export const adminApi = {
 export const aiApi = {
   createInput: (text: string) =>
     req<AiInputRef>("/ai/inputs", { method: "POST", body: JSON.stringify({ kind: "text", text }) }),
+  // A media submission (voice note / photo / PDF) — multipart, like uploadImage.
+  uploadInput: (file: File) => uploadAiInput(file),
   // The Idempotency-Key makes a double-click return the same job instead of a 409.
   createJob: (kind: AiJobKind, inputIds: string[], options: Json = {}, idempotencyKey?: string) =>
     req<AiJobAdmin>("/ai/jobs", {
@@ -326,6 +329,24 @@ async function uploadImage(file: File): Promise<string> {
   }
   if (!res.ok) throw new Error((await detail(res)) ?? `Upload failed (${res.status})`);
   return ((await res.json()) as { url: string }).url;
+}
+
+/** Upload one AI-wizard media submission (audio/image/PDF, max 10 MB). */
+async function uploadAiInput(file: File): Promise<AiInputRef> {
+  const token = await getToken();
+  if (!token) throw new AdminAuthError("Not signed in");
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${adminBase()}/ai/inputs/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new AdminAuthError((await detail(res)) ?? "Not authorized");
+  }
+  if (!res.ok) throw new Error((await detail(res)) ?? `Upload failed (${res.status})`);
+  return (await res.json()) as AiInputRef;
 }
 
 /** Download an authed file (needs the bearer header, so fetch → blob → click). */

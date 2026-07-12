@@ -28,15 +28,28 @@ from sqlalchemy.orm import Session
 
 from app.ai.credits import compute_hold, refund_hold
 from app.ai.ledger import cost_usd_today, record_usage
-from app.ai.media import MAX_TRANSCRIPT_CHARS, transcribe_input
+from app.ai.media import (
+    GeminiMedia,
+    MAX_TRANSCRIPT_CHARS,
+    get_media_model,
+    sniff_image_mime,
+    transcribe_input,
+)
 from app.ai.prompts import render_prompt
 from app.ai.resolve import resolve_venue
-from app.ai.schemas import DraftArc, ExtractedFacts, GlyphOutput, GroundingReport
+from app.ai.schemas import (
+    DraftArc,
+    ExtractedFacts,
+    GlyphOutput,
+    GroundingReport,
+    GuestLines,
+)
 from app.ai.svg import SvgSanitizationError, sanitize_glyph
 from app.ai.types import EFFORT_VALUES, ProviderError, ProviderRefusal, TextModel
 from app.audit_log import record
 from app.config import Settings
-from app.entitlements import check_limit, require_feature
+from app.entitlements import check_limit, check_storage, effective_entitlements, require_feature
+from app.guest_import import build_guests
 from app.models import (
     AiInput,
     AiJob,
@@ -46,18 +59,24 @@ from app.models import (
     Wedding,
 )
 from app.obs import log_event
+from app.storage import delete_media_object, prepare_image, store_image, UploadError
 from app.timeutil import as_utc, utcnow
 
 logger = logging.getLogger("app.ai")
 
-# Fixed step order per kind. The `images` fan-out (Nano Banana, one request
-# per beat) and the `guests` kind land with the media/image seam — both are
-# additive entries here.
+# Fixed step order per kind. `images` is the Nano Banana fan-out (one request
+# per beat) — it processes a couple of beats per /advance call and repeats
+# until every beat is done, so no single HTTP request runs long.
 STEPS: dict[str, tuple[str, ...]] = {
-    AiJobKind.WIZARD: ("transcribe", "extract", "resolve", "draft", "ground"),
-    AiJobKind.STORY_ARC: ("transcribe", "extract", "draft", "ground"),
+    AiJobKind.WIZARD: ("transcribe", "extract", "resolve", "draft", "images", "ground"),
+    AiJobKind.STORY_ARC: ("transcribe", "extract", "draft", "images", "ground"),
     AiJobKind.GLYPH: ("transcribe", "glyph"),
+    AiJobKind.GUESTS: ("transcribe", "guests"),
 }
+
+# How many beat images one /advance call generates (each is ~5–15 s at the
+# provider — two keeps the request comfortably under serverless timeouts).
+IMAGES_PER_ADVANCE = 2
 
 # Stuck `running` jobs past this are expired (hold refunded) by the reap cron.
 EXPIRES_AFTER = timedelta(hours=2)
@@ -223,11 +242,14 @@ def advance_job(
     job: AiJob,
     *,
     text_model: TextModel,
+    media_model: GeminiMedia | None = None,
     expected_step: int | None = None,
 ) -> AiJob:
     """Run exactly one pipeline step. Idempotent per step: a replayed advance
     (expected_step < the current step) is a no-op returning current state;
-    an advance from the future is a 409."""
+    an advance from the future is a 409. The `images` fan-out may leave the
+    job ON its step (partial progress saved in state) — the client just keeps
+    advancing until awaiting_review."""
     if job.status == AiJobStatus.AWAITING_REVIEW:
         return job  # already done — replays are harmless
     if job.status not in AiJobStatus.ACTIVE:
@@ -238,7 +260,7 @@ def advance_job(
         if expected_step > job.step:
             raise HTTPException(status_code=409, detail=f"Job is on step {job.step}")
     if job.expires_at is not None and as_utc(job.expires_at) < utcnow():
-        _terminate(db, job, AiJobStatus.EXPIRED, "run took too long and expired")
+        _terminate(db, settings, job, AiJobStatus.EXPIRED, "run took too long and expired")
         db.commit()
         return job
     # Tripping the ceiling QUEUES the job rather than failing it — no state
@@ -251,17 +273,19 @@ def advance_job(
     job.status = AiJobStatus.RUNNING
     step_name = STEPS[job.kind][job.step]
     try:
-        _run_step(db, settings, job, step_name, text_model)
+        step_done = _run_step(db, settings, job, step_name, text_model, media_model)
     except ProviderRefusal as exc:
-        _terminate(db, job, AiJobStatus.FAILED, f"the model declined this request: {exc}")
+        _terminate(db, settings, job, AiJobStatus.FAILED,
+                   f"the model declined this request: {exc}")
         db.commit()
         return job
     except ProviderError as exc:
-        _terminate(db, job, AiJobStatus.FAILED, str(exc))
+        _terminate(db, settings, job, AiJobStatus.FAILED, str(exc))
         db.commit()
         return job
 
-    job.step += 1
+    if step_done is not False:  # False = repeat me (images fan-out mid-flight)
+        job.step += 1
     if job.step >= job.steps_total:
         job.proposal = _build_proposal(job)
         job.status = AiJobStatus.AWAITING_REVIEW
@@ -272,7 +296,7 @@ def advance_job(
     return job
 
 
-def reap_expired_jobs(db: Session, *, now: datetime | None = None) -> dict:
+def reap_expired_jobs(db: Session, settings: Settings, *, now: datetime | None = None) -> dict:
     """The reap-ai-jobs cron body (plan 8.3 §9): move stuck queued/running
     jobs past their `expires_at` to `expired` — hold refunded, inputs swept —
     and delete orphan inputs (uploaded but never claimed by any job) older
@@ -287,7 +311,7 @@ def reap_expired_jobs(db: Session, *, now: datetime | None = None) -> dict:
     ).scalars().all()
     for job in active:
         if job.expires_at is not None and as_utc(job.expires_at) < now:
-            _terminate(db, job, AiJobStatus.EXPIRED, "run took too long and expired")
+            _terminate(db, settings, job, AiJobStatus.EXPIRED, "run took too long and expired")
             expired.append(
                 {"job_id": str(job.id), "wedding_id": str(job.wedding_id), "kind": job.kind}
             )
@@ -296,7 +320,7 @@ def reap_expired_jobs(db: Session, *, now: datetime | None = None) -> dict:
     orphans_swept = 0
     for inp in db.execute(select(AiInput).where(AiInput.job_id.is_(None))).scalars():
         if inp.created_at is not None and as_utc(inp.created_at) < orphan_cutoff:
-            db.delete(inp)
+            _delete_input(db, settings, inp)
             orphans_swept += 1
 
     if expired or orphans_swept:
@@ -304,23 +328,57 @@ def reap_expired_jobs(db: Session, *, now: datetime | None = None) -> dict:
     return {"expired": expired, "orphan_inputs_swept": orphans_swept}
 
 
-def cancel_job(db: Session, job: AiJob) -> AiJob:
+def cancel_job(db: Session, settings: Settings, job: AiJob) -> AiJob:
     if job.status not in (*AiJobStatus.ACTIVE, AiJobStatus.AWAITING_REVIEW):
         raise HTTPException(status_code=409, detail=f"Job is {job.status}")
-    _terminate(db, job, AiJobStatus.CANCELLED, None)
+    _terminate(db, settings, job, AiJobStatus.CANCELLED, None)
     db.commit()
     return job
 
 
-def _terminate(db: Session, job: AiJob, status: str, error: str | None) -> None:
+def _delete_input(db: Session, settings: Settings, inp: AiInput) -> None:
+    """Delete an input row AND its stored media object (raw PII — the row
+    going away must take the voice note in the bucket with it)."""
+    if inp.storage_url:
+        delete_media_object(settings, inp.storage_url)
+    db.delete(inp)
+
+
+def sweep_generated_images(
+    db: Session, settings: Settings, job: AiJob, *, keep: set[str]
+) -> None:
+    """Delete generated beat images not in `keep` (terminated run: all of
+    them; applied run: everything the final proposal didn't reference) and
+    give the bytes back to the wedding's storage counter. Deletion is
+    best-effort; the counter only moves for URLs we actually tracked."""
+    state = job.state or {}
+    image_bytes: dict = state.get("image_bytes") or {}
+    freed = 0
+    for url, size in image_bytes.items():
+        if url in keep:
+            continue
+        delete_media_object(settings, url)
+        if isinstance(size, int) and not isinstance(size, bool):
+            freed += size
+    if freed and job.wedding is not None:
+        job.wedding.storage_bytes_used = max((job.wedding.storage_bytes_used or 0) - freed, 0)
+    # Only the kept URLs remain accounted to this job.
+    state = dict(state)
+    state["image_bytes"] = {u: b for u, b in image_bytes.items() if u in keep}
+    job.state = state
+
+
+def _terminate(db: Session, settings: Settings, job: AiJob, status: str, error: str | None) -> None:
     """Move to a terminal status: refund the hold (a failed/cancelled/expired
-    run never costs the couple) and delete raw inputs (transcripts and all —
-    consent-based retention arrives with the inputs API in 8.4)."""
+    run never costs the couple), delete raw inputs (transcripts, and their
+    stored media objects — consent-based retention is a later refinement) and
+    sweep any generated beat images that will now never be applied."""
     job.status = status
     job.error = error
     refund_hold(job)
     for inp in db.execute(select(AiInput).where(AiInput.job_id == job.id)).scalars():
-        db.delete(inp)
+        _delete_input(db, settings, inp)
+    sweep_generated_images(db, settings, job, keep=set())
     log_event(logger, "ai.job.terminal", job_id=str(job.id), status=status,
               wedding_id=str(job.wedding_id), error=(error or "")[:200] or None)
 
@@ -340,21 +398,34 @@ def _bounded_options(options: dict | None) -> dict:
 
 # ---------------------------------------------------------------------------
 # Steps — each mutates job.state and stages ledger rows; caller commits.
+# A runner returning False means "not finished, run me again" (the images
+# fan-out); anything else advances to the next step.
 # ---------------------------------------------------------------------------
 def _run_step(
-    db: Session, settings: Settings, job: AiJob, step_name: str, text_model: TextModel
-) -> None:
+    db: Session,
+    settings: Settings,
+    job: AiJob,
+    step_name: str,
+    text_model: TextModel,
+    media_model: GeminiMedia | None = None,
+) -> bool | None:
     state = dict(job.state or {})
     runner = {
         "transcribe": _step_transcribe,
         "extract": _step_extract,
         "resolve": _step_resolve,
         "draft": _step_draft,
+        "images": _step_images,
         "ground": _step_ground,
         "glyph": _step_glyph,
+        "guests": _step_guests,
     }[step_name]
-    runner(db, settings, job, state, text_model)
+    if step_name in ("transcribe", "images"):
+        done = runner(db, settings, job, state, media_model)
+    else:
+        done = runner(db, settings, job, state, text_model)
     job.state = state  # reassign: JSON columns don't track in-place mutation
+    return done
 
 
 def _generate(
@@ -386,15 +457,19 @@ def _generate(
     return completion.output
 
 
-def _step_transcribe(db, settings, job, state, text_model) -> None:
-    """Media → text (no text LLM involved). The joined, bounded transcript is
-    the ONLY form of the submission any later step sees."""
+def _step_transcribe(db, settings, job, state, media_model) -> None:
+    """Media → text (no text LLM involved; media kinds go through the Gemini
+    seam and their calls are ledgered). The joined, bounded transcript is the
+    ONLY form of the submission any later step sees."""
     inputs = db.execute(
         select(AiInput).where(AiInput.job_id == job.id).order_by(AiInput.created_at)
     ).scalars().all()
     parts = []
     for inp in inputs:
-        transcript = transcribe_input(settings, inp)
+        transcript, usage = transcribe_input(settings, inp, media=media_model)
+        if usage is not None:
+            record_usage(db, wedding_id=job.wedding_id, job_id=job.id,
+                         kind="transcribe", usage=usage)
         inp.transcript = transcript
         parts.append(transcript)
     state["submission"] = "\n\n".join(p for p in parts if p)[:MAX_TRANSCRIPT_CHARS]
@@ -437,6 +512,96 @@ def _step_draft(db, settings, job, state, text_model) -> None:
         ledger_kind="draft",
     )
     state["draft"] = draft.model_dump()
+
+
+def _step_images(db, settings, job, state, media_model) -> bool:
+    """The Nano Banana fan-out (plan step 5): one image request per beat,
+    IMAGES_PER_ADVANCE per call — returns False while beats remain so the
+    client simply advances again. Degrades, never blocks: no Gemini key, a
+    content-filter refusal on one scene, or a full storage quota all leave
+    the affected beats text-only (they render as feathered panels) rather
+    than failing a run the couple already paid a hold for."""
+    beats = (state.get("draft") or {}).get("beats") or []
+    if not settings.gemini_api_key:
+        if beats:
+            state["images_skipped"] = "media generation isn't configured"
+        return True
+    cap = effective_entitlements(db, job.wedding).get("ai_max_images_per_arc", 0)
+    if not isinstance(cap, int) or isinstance(cap, bool):
+        cap = 0
+    images = dict(state.get("images") or {})
+    refused = dict(state.get("images_refused") or {})
+    image_bytes = dict(state.get("image_bytes") or {})
+    pending = [
+        i for i in range(min(len(beats), cap))
+        if str(i) not in images and str(i) not in refused
+    ]
+
+    media = media_model or get_media_model(settings)
+    for i in pending[:IMAGES_PER_ADVANCE]:
+        prompt = (beats[i].get("image_prompt") or "").strip()
+        if not prompt:
+            refused[str(i)] = "no scene description"
+            continue
+        try:
+            data, usage = media.generate_image(prompt)
+        except ProviderRefusal as exc:
+            # This scene only — the run continues, the beat stays text-only.
+            log_event(logger, "ai.image.refused", job_id=str(job.id), beat=i)
+            refused[str(i)] = str(exc)[:200]
+            continue
+        record_usage(db, wedding_id=job.wedding_id, job_id=job.id,
+                     kind="image", usage=usage, images=1)
+        mime = sniff_image_mime(data)
+        try:
+            blob, ext = prepare_image(data, mime)
+        except UploadError as exc:
+            refused[str(i)] = f"unusable image ({exc})"
+            continue
+        try:
+            check_storage(db, job.wedding, adding_bytes=len(blob))
+        except HTTPException:
+            state["images_skipped"] = "this wedding's storage is full"
+            state["images"], state["images_refused"] = images, refused
+            state["image_bytes"] = image_bytes
+            return True  # keep what we have; stop generating
+        url = store_image(settings, job.wedding.slug, blob, ext, mime)
+        job.wedding.storage_bytes_used = (job.wedding.storage_bytes_used or 0) + len(blob)
+        images[str(i)] = url
+        image_bytes[url] = len(blob)
+
+    state["images"], state["images_refused"] = images, refused
+    state["image_bytes"] = image_bytes
+    return len(pending) <= IMAGES_PER_ADVANCE
+
+
+def _step_guests(db, settings, job, state, text_model) -> None:
+    """Guest extraction: the model returns each entry EXACTLY as written
+    (names + raw "+1"/kid markers); the deterministic guest_import parser then
+    collapses companions and assigns tiers IN CODE. The model never sees,
+    names, or suggests a tier — that is guardrail 1, not a style choice."""
+    lines = _generate(
+        db, settings, job, state, text_model,
+        key="extract_guests.system",
+        user=f"<submission>\n{state.get('submission', '')}\n</submission>",
+        schema=GuestLines,
+        ledger_kind="extract",
+    )
+    drafts, unresolved = build_guests([{"name": line} for line in lines.lines])
+    state["guests"] = [
+        {
+            "name": d.name,
+            "invite_tier": d.invite_tier.value,  # computed by infer_tier, in code
+            "adult_companions": d.adult_companions,
+            "child_companions": d.child_companions,
+        }
+        for d in drafts
+    ]
+    state["guests_unresolved"] = [u["name"] for u in unresolved]
+    if not state["guests"]:
+        raise ProviderError(
+            "No guest names found in what you shared — paste the list itself and try again"
+        )
 
 
 def _step_ground(db, settings, job, state, text_model) -> None:
@@ -483,6 +648,13 @@ def _build_proposal(job: AiJob) -> dict:
     if job.kind in (AiJobKind.WIZARD, AiJobKind.STORY_ARC):
         proposal["story_arc"] = state.get("draft")
         proposal["grounding"] = state.get("grounding")
+        # Generated beat art rides NEXT TO the draft (never inside it — the
+        # draft revalidates through DraftArc at apply, whose schema the model
+        # owns; an `image` field there would invite the model to fill it).
+        proposal["beat_images"] = state.get("images") or {}
+    if job.kind == AiJobKind.GUESTS:
+        proposal["guests"] = state.get("guests") or []
+        proposal["guests_unresolved"] = state.get("guests_unresolved") or []
     if job.kind == AiJobKind.WIZARD:
         facts = state.get("facts") or {}
         details: dict = {}

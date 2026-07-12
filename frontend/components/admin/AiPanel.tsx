@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import AttachFileIcon from "@mui/icons-material/AttachFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import GroupAddIcon from "@mui/icons-material/GroupAdd";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -28,7 +30,12 @@ const KIND_LABELS: Record<string, string> = {
   wizard: "Full draft",
   story_arc: "Story chapter",
   glyph: "Mark",
+  guests: "Guest list",
 };
+
+// Mirrors backend storage.ALLOWED_AI_MEDIA_TYPES / MAX_AI_MEDIA_BYTES.
+const MEDIA_ACCEPT = "audio/*,image/png,image/jpeg,image/webp,application/pdf";
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
 const STATUS_COLORS: Record<string, "default" | "info" | "success" | "warning" | "error"> = {
   queued: "info",
@@ -58,6 +65,7 @@ export default function AiPanel({
   const [job, setJob] = useState<AiJobAdmin | null>(null); // the run in focus (with variants)
   const [credits, setCredits] = useState<AiCreditsInfo | null>(null);
   const [text, setText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,6 +99,19 @@ export default function AiPanel({
     );
   }
 
+  const addFiles = (picked: FileList | null) => {
+    if (!picked) return;
+    const next = [...files];
+    for (const f of Array.from(picked)) {
+      if (f.size > MAX_MEDIA_BYTES) {
+        setError(`"${f.name}" is over 10 MB — trim it down and try again.`);
+        continue;
+      }
+      next.push(f);
+    }
+    setFiles(next.slice(0, 12));
+  };
+
   const start = async (kind: AiJobKind) => {
     setBusy(true);
     setError(null);
@@ -98,8 +119,10 @@ export default function AiPanel({
       const t = text.trim();
       const inputIds: string[] = [];
       if (t) inputIds.push((await aiApi.createInput(t)).id);
+      for (const f of files) inputIds.push((await aiApi.uploadInput(f)).id);
       const created = await aiApi.createJob(kind, inputIds, {}, crypto.randomUUID());
       setText("");
+      setFiles([]);
       setJob(created);
       setJobs((js) => [created, ...(js ?? [])]);
     } catch (e) {
@@ -167,27 +190,58 @@ export default function AiPanel({
           <Stack spacing={2}>
             <Typography variant="subtitle1">Start a run</Typography>
             <Typography variant="body2" color="text.secondary">
-              Paste anything — how you met, the proposal, a voice-note transcript — and the AI
-              drafts a story chapter from it. Or have it design a simple monochrome mark for your
-              cover. You review everything before it touches your site.
+              Paste anything — how you met, the proposal, a guest list from WhatsApp — or attach
+              a voice note, a photo, or the venue PDF. The AI drafts from it; you review
+              everything before it touches your site.
             </Typography>
             <TextField
               multiline
               minRows={3}
               fullWidth
               label="What should it work from?"
-              placeholder="Required for a story chapter; optional inspiration for a mark."
+              placeholder="Required for a story chapter or guest list; optional inspiration for a mark."
               value={text}
               onChange={(e) => setText(e.target.value.slice(0, 20000))}
             />
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+              <Button component="label" size="small" startIcon={<AttachFileIcon />} disabled={busy}>
+                Attach files
+                <input
+                  hidden
+                  multiple
+                  type="file"
+                  accept={MEDIA_ACCEPT}
+                  onChange={(e) => {
+                    addFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </Button>
+              {files.map((f, i) => (
+                <Chip
+                  key={`${f.name}-${i}`}
+                  size="small"
+                  label={f.name}
+                  onDelete={() => setFiles(files.filter((_, j) => j !== i))}
+                />
+              ))}
+            </Stack>
             <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap" }}>
               <Button
                 variant="contained"
                 startIcon={busy ? <CircularProgress size={16} /> : <AutoAwesomeIcon />}
-                disabled={busy || !text.trim()}
+                disabled={busy || (!text.trim() && files.length === 0)}
                 onClick={() => start("story_arc")}
               >
                 Draft a story chapter
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<GroupAddIcon />}
+                disabled={busy || (!text.trim() && files.length === 0)}
+                onClick={() => start("guests")}
+              >
+                Extract a guest list
               </Button>
               <Button
                 variant="outlined"

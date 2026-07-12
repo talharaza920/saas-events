@@ -12,6 +12,8 @@ the step fails cleanly, rather than smuggling content into the proposal.
 """
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -67,6 +69,18 @@ class GroundingReport(_Strict):
 
     unsupported: list[UnsupportedClaim] = Field(default_factory=list, max_length=20)
     all_supported: bool
+
+
+class GuestLines(_Strict):
+    """The guest-extraction output: each invited party EXACTLY as the couple
+    wrote it ("Riley Park +1", "Kid (Riley Park)") — names only, markers
+    preserved. The model never sees, names, or suggests a tier: the
+    deterministic guest_import parser assigns tiers from these raw markers in
+    code (the invite-tier secret, guardrail 1)."""
+
+    lines: list[Annotated[str, Field(max_length=200)]] = Field(
+        default_factory=list, max_length=300
+    )
 
 
 class GlyphOutput(_Strict):
