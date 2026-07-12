@@ -54,3 +54,6 @@ Thumbs.db
 
 # Throwaway QA screenshots (manual browser-testing artifacts)
 qa-shots/
+
+# Local-only scratch (personal test data — never committed; see CLAUDE.md scrub rule)
+/local/
