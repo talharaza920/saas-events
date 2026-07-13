@@ -353,13 +353,25 @@ def test_openai_adapter_request_shape_and_success():
     )
 
 
+def test_selecting_openai_needs_no_second_setting():
+    """The model follows the provider (config.text_model), so `openai` alone is
+    a complete config. This used to require ALSO setting AI_TEXT_MODEL, and
+    forgetting sent a Claude id to OpenAI."""
+    client = _StubOpenAIClient(_openai_ok(Facts()))
+    adapter = OpenAITextModel(_settings(ai_text_provider="openai"), client=client)
+    adapter.generate_structured(_prompt(), Facts, effort="high")
+    assert client.responses.calls[0]["model"] == "gpt-5.1"
+
+
 def test_openai_adapter_refuses_claude_model_id():
-    """The configured default model is a Claude id — selecting the openai
-    provider without changing it must fail fast with the fix named, not slow
-    with a provider 404."""
-    adapter = OpenAITextModel(_settings(ai_text_provider="openai"), client=_StubOpenAIClient())
-    with pytest.raises(ProviderError, match="AI_TEXT_MODEL"):
-        adapter.generate_structured(_prompt(), Facts, effort="high")
+    """A per-prompt-key model override from the ai_prompts registry is the one
+    remaining way to point a Claude id at OpenAI — fail fast with the fix named,
+    not slow with a provider 404."""
+    adapter = OpenAITextModel(_openai_settings(), client=_StubOpenAIClient())
+    with pytest.raises(ProviderError, match="AI_MODEL_OPENAI"):
+        adapter.generate_structured(
+            _prompt(model="claude-opus-4-8"), Facts, effort="high"
+        )
 
 
 def test_openai_adapter_retries_without_reasoning_once():

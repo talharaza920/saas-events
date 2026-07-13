@@ -72,30 +72,56 @@ class Settings(BaseSettings):
     # `Authorization: Bearer $CRON_SECRET`). Empty = the routes 404.
     cron_secret: str = ""
 
-    # --- AI creation wizard (app/ai/, AI_WIZARD_PLAN Phase 8) -------------------
+    # --- AI: live calls (app/ai/, AI_WIZARD_PLAN Phase 8) -----------------------
+    # ONE switch for "may this process spend money on AI?", plus per-capability
+    # overrides. The master WINS: with AI_LIVE_CALLS=false nothing leaves the
+    # box, whatever the four flags below say. With it on, each capability can
+    # still be turned off on its own (keep text drafting, stop paying for
+    # images). `None` = inherit the master.
+    #
+    # Off is a DEGRADE, never a crash — every one of these paths already exists
+    # for the no-key case: text falls back to the offline `fake` adapter, image
+    # generation skips (beats stay text-only), transcription refuses media with
+    # a clear message, venue resolution keeps the couple's own words.
+    #
+    # This is the DEPLOY-time switch, and it is deliberately not the only one:
+    # the platform kill-switch (DB, ops, no redeploy) and the daily cost ceiling
+    # both still apply on top of it.
+    ai_live_calls: bool = True
+    ai_live_text: bool | None = None
+    ai_live_images: bool | None = None
+    ai_live_transcribe: bool | None = None
+    ai_live_places: bool | None = None
+
+    # --- AI: providers + models -------------------------------------------------
     # The text model is pluggable by config; media (Gemini) is a hard-coded seam.
-    # `fake` is the offline/test adapter. Platform admins can later override
-    # model/effort per prompt key via the ai_prompts table.
+    # `fake` is the offline/test adapter.
     ai_text_provider: str = "anthropic"  # anthropic | openai | fake
-    ai_text_model: str = "claude-opus-4-8"
     ai_text_effort: str = "high"  # low | medium | high
     anthropic_api_key: str = ""
-    # Alternate text model behind the same port (providers/openai.py). When
-    # selecting it, set ai_text_model to an OpenAI id (e.g. gpt-5.1) too.
     openai_api_key: str = ""
-    # Media understanding (app/ai/media.py) — must be a BILLING-ENABLED
-    # AI Studio project (free-tier input may train on guest PII). Empty =
-    # media inputs refused; pasted text still works.
+    # Media understanding + image generation (app/ai/media.py) — must be a
+    # BILLING-ENABLED AI Studio project (free-tier input may train on guest
+    # PII). Empty = media inputs refused; pasted text still works.
     gemini_api_key: str = ""
-    # Gemini model ids are config, not code (they churn) — confirmed against
-    # ai.google.dev/gemini-api/docs/models 2026-07-12. Transcription = the GA
-    # flash model; images = "Nano Banana 2" (gemini-3.1-flash-image), priced
-    # per image, not per token (see ai/pricing.py IMAGE_PRICES).
-    gemini_transcribe_model: str = "gemini-3.5-flash"
-    gemini_image_model: str = "gemini-3.1-flash-image"
     # Venue resolution (app/ai/resolve.py). Empty = venues stay as the
     # couple's own words (degraded, never invented).
     google_places_api_key: str = ""
+
+    # Model ids are config, not code — they churn, and swapping one must never
+    # need a code change. ONE PER PROVIDER, so selecting a provider selects its
+    # model too: `AI_TEXT_PROVIDER=openai` alone is a valid, correct config.
+    # (It used to also need AI_TEXT_MODEL, and getting that wrong pointed a
+    # Claude id at OpenAI.) AI_TEXT_MODEL stays as an explicit override — set it
+    # to pin an exact snapshot id; empty = the configured provider's default.
+    # Gemini ids confirmed against ai.google.dev/gemini-api/docs/models
+    # 2026-07-12: transcription = the GA flash model; images = "Nano Banana 2",
+    # priced per image, not per token (see ai/pricing.py IMAGE_PRICES).
+    ai_text_model: str = ""  # "" = the provider default below
+    ai_model_anthropic: str = "claude-opus-4-8"
+    ai_model_openai: str = "gpt-5.1"
+    gemini_transcribe_model: str = "gemini-3.5-flash"
+    gemini_image_model: str = "gemini-3.1-flash-image"
 
     # LOCAL-DEV ONLY: a static bearer token that stands in for a Supabase login
     # so /admin works on SQLite without Supabase Auth. Empty in production (then
@@ -112,6 +138,73 @@ class Settings(BaseSettings):
     media_base_url: str = "http://localhost:8000"
     supabase_storage_bucket: str = "invite-media"
     supabase_service_key: str = ""
+
+    # --- AI capability gates ----------------------------------------------------
+    # Ask these, never the raw key or flag: each one folds together "is it
+    # configured?" and "are we allowed to call it?", which are the two ways a
+    # capability can be off and which every call site would otherwise have to
+    # remember to check separately.
+
+    def _live(self, override: bool | None) -> bool:
+        """Master AND per-capability. A `true` override can never resurrect a
+        capability the master switched off — that direction is the safe one, and
+        the whole point of having a master."""
+        if not self.ai_live_calls:
+            return False
+        return True if override is None else override
+
+    @property
+    def ai_text_live(self) -> bool:
+        """False = serve the offline `fake` adapter whatever the provider says."""
+        return self._live(self.ai_live_text)
+
+    @property
+    def ai_transcribe_enabled(self) -> bool:
+        return bool(self.gemini_api_key) and self._live(self.ai_live_transcribe)
+
+    @property
+    def ai_images_enabled(self) -> bool:
+        return bool(self.gemini_api_key) and self._live(self.ai_live_images)
+
+    @property
+    def ai_places_enabled(self) -> bool:
+        return bool(self.google_places_api_key) and self._live(self.ai_live_places)
+
+    @property
+    def text_model(self) -> str:
+        """The model id for the CONFIGURED provider — ALWAYS read this, never the
+        raw `ai_text_model` field. An explicit AI_TEXT_MODEL wins, else that
+        provider's own default, so a provider swap can't leave a Claude id
+        pointed at OpenAI."""
+        if self.ai_text_model.strip():
+            return self.ai_text_model.strip()
+        return {
+            "anthropic": self.ai_model_anthropic,
+            "openai": self.ai_model_openai,
+        }.get(self.ai_text_provider.strip().lower(), self.ai_model_anthropic)
+
+    @property
+    def ai_mode(self) -> str:
+        """One-line summary for the startup log — so a process that is NOT
+        going to call a real model says so, loudly, before anyone wonders why
+        the drafts look canned."""
+        # ASCII only: this lands in a server log line and the Windows console is
+        # cp1252 (LEARNINGS 2026-07-09).
+        if not self.ai_text_live:
+            return "ai=OFFLINE (fake text model; live calls are switched off)"
+        capabilities = ",".join(
+            name
+            for name, on in (
+                ("transcribe", self.ai_transcribe_enabled),
+                ("images", self.ai_images_enabled),
+                ("places", self.ai_places_enabled),
+            )
+            if on
+        )
+        return (
+            f"ai={self.ai_text_provider}/{self.text_model} "
+            f"[{capabilities or 'text only'}]"
+        )
 
     @property
     def use_supabase_storage(self) -> bool:

@@ -81,12 +81,15 @@ class OpenAITextModel:
     def generate_structured(
         self, prompt: RenderedPrompt, schema: type[BaseModel], *, effort: Effort
     ) -> Completion:
-        model = prompt.model or self._settings.ai_text_model
+        # AI_MODEL_OPENAI now follows the provider automatically, so the only
+        # remaining way to point a Claude id at OpenAI is a bad per-prompt-key
+        # override in the ai_prompts registry — which this still catches.
+        model = prompt.model or self._settings.text_model
         if model.startswith("claude"):
             raise ProviderError(
                 f"ai_text_provider=openai but the model is {model!r} — set "
-                "AI_TEXT_MODEL to an OpenAI model (e.g. gpt-5.1) or override "
-                "the model per prompt key"
+                "AI_MODEL_OPENAI to an OpenAI model (e.g. gpt-5.1), or fix the "
+                "model override on this prompt key"
             )
         kwargs: dict = {
             "model": model,

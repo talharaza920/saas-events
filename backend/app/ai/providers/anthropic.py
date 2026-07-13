@@ -76,7 +76,7 @@ class AnthropicTextModel:
     def generate_structured(
         self, prompt: RenderedPrompt, schema: type[BaseModel], *, effort: Effort
     ) -> Completion:
-        model = prompt.model or self._settings.ai_text_model
+        model = prompt.model or self._settings.text_model
         system_block: dict = {"type": "text", "text": prompt.system}
         if prompt.cache_prefix:
             system_block["cache_control"] = {"type": "ephemeral"}

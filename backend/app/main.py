@@ -27,8 +27,15 @@ logger = logging.getLogger("app.main")
 
 app = FastAPI(title=settings.app_name)
 
-# Make the active DB obvious in the server log on boot (local vs production).
-logger.info("startup: DB backend=%s env=%s", settings.db_backend, settings.environment)
+# Make the active DB and the AI wiring obvious in the server log on boot: which
+# DB (local vs production), and whether this process will actually spend money
+# on a model or is running the offline fake.
+logger.info(
+    "startup: DB backend=%s env=%s %s",
+    settings.db_backend,
+    settings.environment,
+    settings.ai_mode,
+)
 
 # Serve locally-uploaded images (dev storage backend) — DEV ONLY. On serverless
 # (Vercel) the filesystem is read-only, so creating/mounting this dir crashes the

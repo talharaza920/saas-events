@@ -78,6 +78,10 @@ class GeminiMedia:
 
     def _get_client(self) -> Any:
         if self._client is None:
+            # Backstop, not the main gate: callers check the capability
+            # properties and degrade. If one ever forgets, no money moves.
+            if not self._settings.ai_live_calls:
+                raise ProviderError("live AI calls are switched off (AI_LIVE_CALLS=false)")
             if not self._settings.gemini_api_key:
                 raise ProviderError("GEMINI_API_KEY is not configured")
             try:
@@ -193,11 +197,12 @@ def transcribe_input(
     so the pipeline can ledger it."""
     if ai_input.kind == "text":
         return (ai_input.text_content or "")[:MAX_TRANSCRIPT_CHARS], None
-    if not settings.gemini_api_key:
+    if not settings.ai_transcribe_enabled:
         raise ProviderError(
             f"Cannot transcribe a {ai_input.kind!r} input: media understanding "
-            "(Gemini) isn't configured — set GEMINI_API_KEY (billing-enabled "
-            "project only; see AI_WIZARD_PLAN's key table)."
+            "(Gemini) is turned off — set GEMINI_API_KEY (billing-enabled "
+            "project only; see AI_WIZARD_PLAN's key table) and leave "
+            "AI_LIVE_CALLS / AI_LIVE_TRANSCRIBE on."
         )
     if not ai_input.storage_url or not ai_input.mime:
         raise ProviderError(f"This {ai_input.kind} submission has no stored file")

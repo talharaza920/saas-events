@@ -82,6 +82,13 @@ for **local SQLite** (`sqlite:///./dev.db`); delete it to hit **Supabase**.
   creates schema + seeds the template wedding + demo guests `solo-demo`/
   `plusone-demo`/`family-demo`; reset by deleting `dev.db`).
 - Run: `.venv/Scripts/python.exe -m uvicorn app.main:app --port 8000`.
+- **AI spend is one switch.** `AI_LIVE_CALLS=false` = no AI call leaves the
+  process whatever keys are set (offline fake text model; media, images and
+  Places all degrade cleanly) — **run the browser smokes with it**, since
+  `backend/.env` holds real Gemini/Places keys. With it on, `AI_LIVE_IMAGES` /
+  `_TRANSCRIBE` / `_PLACES` / `_TEXT` switch off one capability each. The model
+  follows the provider (`AI_TEXT_PROVIDER=openai` is a complete config; ids in
+  `AI_MODEL_*`), and the backend logs its AI mode on boot.
 - Migrate (Supabase): `.venv/Scripts/python.exe -m alembic upgrade head` (RLS is
   Postgres-only and auto-skipped on SQLite, so the migration runs on both).
 - Seed / import (Supabase): `scripts/seed_wedding.py`, then

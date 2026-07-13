@@ -42,7 +42,7 @@ def resolve_venue(
 ) -> ResolvedVenue | None:
     """Best-effort lookup. Any failure (no key, HTTP error, no result) is
     None — the pipeline continues with the couple's own words."""
-    if not settings.google_places_api_key or not venue_name.strip():
+    if not settings.ai_places_enabled or not venue_name.strip():
         return None
     query = f"{venue_name}, {city}" if city else venue_name
     try:

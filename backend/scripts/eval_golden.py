@@ -78,7 +78,12 @@ class Runner:
 
 
 def run(provider: str, model_id: str, effort: str) -> int:
-    settings = Settings(ai_text_provider=provider, ai_text_model=model_id)
+    # ai_live_calls=True is FORCED: this script exists to grade a real model, so
+    # an AI_LIVE_CALLS=false sitting in .env.local must not quietly hand it the
+    # fake adapter and let it report a green run.
+    settings = Settings(
+        ai_text_provider=provider, ai_text_model=model_id, ai_live_calls=True
+    )
     model = get_text_model(settings)
     runner = Runner(model, effort)
     failures: list[str] = []

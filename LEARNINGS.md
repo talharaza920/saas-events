@@ -346,15 +346,44 @@ about this; `AiAssist` re-learned it the hard way, and the smoke caught it only
 because the API check passed while the UI check failed — a combination worth
 treating as a signal, not a flake.
 
-## Local `.env` keys make "offline" smokes spend real money
-`backend/.env` holds real `GEMINI_API_KEY` / `GOOGLE_PLACES_API_KEY`. Setting
-only `AI_TEXT_PROVIDER=fake` fakes the *text* model — the pipeline still calls
-Google Places in `resolve` and Nano Banana in `images`. Run browser smokes with
-those two vars blanked as well (`AI_TEXT_PROVIDER=fake GEMINI_API_KEY=
-GOOGLE_PLACES_API_KEY= …uvicorn`); the pipeline degrades cleanly (venue keeps
-the couple's own words, beats stay text-only) which is exactly what the fake
-fixtures expect. The tell was a smoke asserting "Fern Hall" and getting the very
-real "Fern Hall Estate".
+## "Offline" was three settings, so it wasn't offline — now it's one
+`AI_TEXT_PROVIDER=fake` fakes only the *text* model. With real
+`GEMINI_API_KEY` / `GOOGLE_PLACES_API_KEY` in `backend/.env`, an "offline" smoke
+still called Google Places in `resolve` and Nano Banana in `images` — real spend,
+on a script whose whole point was that it was free. The tell: a smoke asserting
+"Fern Hall" and getting back the very real "Fern Hall Estate".
+
+The fix was structural, not a note in a runbook. A capability that can be off for
+*two* reasons ("no key" and "not allowed") must not make each call site check
+both — every call site was checking the key alone. `config.py` now exposes
+`ai_text_live` / `ai_transcribe_enabled` / `ai_images_enabled` /
+`ai_places_enabled`, each folding the key together with a master `AI_LIVE_CALLS`
+switch and an optional per-capability override; the master always wins, so a
+stray `AI_LIVE_IMAGES=true` cannot re-open what it shut. Off is a graceful
+degrade everywhere (fake text adapter, media refused, beats stay text-only,
+venue keeps the couple's words) because those paths already existed for the
+no-key case — that's *why* one switch could be retrofitted cheaply.
+
+Two things that make it hard to fool yourself: the backend prints its AI mode on
+boot (`ai=OFFLINE (fake text model…)` vs `ai=openai/gpt-5.1 [transcribe,images,
+places]`), and `scripts/eval_golden.py` forces `ai_live_calls=True`, since an
+eval that silently grades the fake adapter would report a green run that means
+nothing.
+
+## Make the model follow the provider, don't validate the pair
+`AI_TEXT_PROVIDER=openai` + the default `AI_TEXT_MODEL=claude-opus-4-8` was a
+config you could actually write, and it only failed because the OpenAI adapter
+carried a hand-written "that's a Claude id" guard. Two settings that must agree
+will eventually disagree. Model ids are now per-provider (`AI_MODEL_ANTHROPIC`,
+`AI_MODEL_OPENAI`) and `settings.text_model` resolves the one for the configured
+provider, so selecting a provider is a complete config on its own. The guard
+stays — it still covers the *remaining* way to get it wrong, a bad per-prompt-key
+model override from the `ai_prompts` registry — but it now guards an edge instead
+of the main road.
+
+Config tests must pass `Settings(_env_file=None, …)` (the suite's convention).
+Ones asserting *defaults* otherwise read the developer's own `.env.local` and
+fail on their box only — which is exactly how these landed the first time.
 
 ## Puppeteer leaf-only text matching misses `<strong>Label:</strong> value`
 The smokes' `visibleHas` only scans elements with no element children, so a

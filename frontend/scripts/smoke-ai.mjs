@@ -5,8 +5,11 @@
  * apply → "use as cover icon"), Guests tab (pasted list → deterministic tiers),
  * the guest cover rendering the AI mark, the platform AI console, and the
  * /create → /setup handoff — with server-side API checks where a visual can lie.
- * Requires backend :8000 (AI_TEXT_PROVIDER=fake) + frontend :3000 + a
+ * Requires backend :8000 started with AI_LIVE_CALLS=false + frontend :3000 + a
  * scripts.dev_setup seed (which enables AI on the local default plan).
+ * AI_LIVE_CALLS=false is the ONE switch that keeps this free: it serves the
+ * offline fake text model AND holds back Places/Nano Banana, whose real keys
+ * live in backend/.env (see LEARNINGS — this smoke used to spend money).
  * Usage: node scripts/smoke-ai.mjs
  */
 import { mkdirSync } from "node:fs";
@@ -38,9 +41,20 @@ const clickText = (sel, text) =>
     sel,
     text,
   );
+/** page.evaluate, but a navigation mid-call is "not there yet", not a crash —
+ * these run inside polling loops that straddle client-side route changes
+ * ("Finish" → /admin), which destroy the execution context under the poll. */
+const evalSafe = async (fn, arg) => {
+  try {
+    return await page.evaluate(fn, arg);
+  } catch (e) {
+    if (String(e.message).includes("Execution context was destroyed")) return false;
+    throw e;
+  }
+};
 /** True when the text is VISIBLE somewhere on the page (leaf elements only). */
 const visibleHas = (text) =>
-  page.evaluate(
+  evalSafe(
     (t) =>
       [...document.querySelectorAll("body *")].some(
         (e) => e.children.length === 0 && e.offsetParent !== null && e.textContent.includes(t),
@@ -50,7 +64,7 @@ const visibleHas = (text) =>
 /** Rendered page text. Use where the string is split across inline elements
  * (e.g. "<strong>Venue:</strong> Fern Hall"), which visibleHas's leaf-only
  * scan can't see. */
-const bodyHas = (text) => page.evaluate((t) => document.body.innerText.includes(t), text);
+const bodyHas = (text) => evalSafe((t) => document.body.innerText.includes(t), text);
 /** Poll until the text is visible (the fake pipeline still takes real HTTP round-trips). */
 async function waitFor(text, attempts = 30) {
   for (let i = 0; i < attempts; i++) {

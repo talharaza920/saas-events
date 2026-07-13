@@ -529,9 +529,9 @@ def _step_images(db, settings, job, state, media_model) -> bool:
     the affected beats text-only (they render as feathered panels) rather
     than failing a run the couple already paid a hold for."""
     beats = (state.get("draft") or {}).get("beats") or []
-    if not settings.gemini_api_key:
+    if not settings.ai_images_enabled:
         if beats:
-            state["images_skipped"] = "media generation isn't configured"
+            state["images_skipped"] = "illustrations are turned off"
         return True
     cap = effective_entitlements(db, job.wedding).get("ai_max_images_per_arc", 0)
     if not isinstance(cap, int) or isinstance(cap, bool):

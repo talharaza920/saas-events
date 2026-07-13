@@ -354,6 +354,25 @@ there).
   apply, `AiAssist` must NOT re-derive its job from the active list —
   `applied` is terminal, so the refetch unmounted the success state the
   instant the couple applied.
+- [x] **AI config: one live-call switch + per-provider models — DONE 2026-07-13.**
+  Going offline used to mean setting three unrelated things
+  (`AI_TEXT_PROVIDER=fake` *and* blanking `GEMINI_API_KEY` *and*
+  `GOOGLE_PLACES_API_KEY`); missing one is what made the "offline" browser smoke
+  spend real money on images. Now `AI_LIVE_CALLS=false` is the master switch —
+  no AI call leaves the process, whatever keys are set — with per-capability
+  overrides (`AI_LIVE_TEXT` / `_IMAGES` / `_TRANSCRIBE` / `_PLACES`) that can
+  only turn things *off*: a `true` can never re-open what the master shut. Call
+  sites ask `settings.ai_text_live` / `ai_transcribe_enabled` /
+  `ai_images_enabled` / `ai_places_enabled`, each folding "is it configured?"
+  together with "are we allowed?"; off degrades exactly like the no-key case
+  (fake text adapter, media refused, beats text-only, venue keeps the couple's
+  words). Model ids are now per-provider (`AI_MODEL_ANTHROPIC`,
+  `AI_MODEL_OPENAI`, + the two Gemini ids) and `settings.text_model` resolves
+  the one for the configured provider, so `AI_TEXT_PROVIDER=openai` alone is a
+  complete config — it previously also needed `AI_TEXT_MODEL`, and forgetting
+  pointed a Claude id at OpenAI. The backend prints its AI mode on boot;
+  `eval_golden.py` forces live calls (a faked green eval would be a lie).
+  `tests/test_ai_config.py` (12 tests) pins both footguns.
 - [ ] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
   Phase 8.5; build order a→e; 8.5a DONE):** 8.5b staged story wizard (style presets,
   editable outline incl. climax image, direct proposal edits,
@@ -379,12 +398,12 @@ there).
   `test_details_proposal_cannot_write_a_story` (SECTIONS_BY_KIND is per-kind,
   not per-proposal); `test_ai_guardrails.py`'s end-to-end apply now covers
   both kinds.
-- AI smoke (`node scripts/smoke-ai.mjs`, backend with `AI_TEXT_PROVIDER=fake`
-  **and blank `GEMINI_API_KEY`/`GOOGLE_PLACES_API_KEY`** — otherwise the run
-  hits the real Places + Nano-Banana APIs and spends money): **36/36** — the
-  whole 8.5a funnel in a real browser with API-verified writes (details run
-  on the Details tab → venue persisted; story on Story; mark on AI; guests on
-  Guests; `/create` → `/setup` → three skippable steps → dismissed checklist).
+- AI smoke (`node scripts/smoke-ai.mjs`, backend started with
+  **`AI_LIVE_CALLS=false`** — the one switch that also holds back the real
+  Places + Nano-Banana keys in `backend/.env`): **36/36** — the whole 8.5a
+  funnel in a real browser with API-verified writes (details run on the Details
+  tab → venue persisted; story on Story; mark on AI; guests on Guests;
+  `/create` → `/setup` → three skippable steps → dismissed checklist).
 - E2E smoke (`node scripts/smoke-e2e.mjs`): **21/21**, unchanged by 8.5a.
 
 ## Test & verification status (2026-07-12, post-8.1c — kept for history)

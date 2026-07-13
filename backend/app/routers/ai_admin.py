@@ -157,7 +157,7 @@ async def upload_ai_input(
     at its very first step."""
     require_feature(db, ctx.wedding, "ai_enabled")
     _check_unclaimed_cap(db, ctx.wedding)
-    if not settings.gemini_api_key:
+    if not settings.ai_transcribe_enabled:
         raise HTTPException(
             status_code=422,
             detail="Voice notes, photos and PDFs aren't available yet — paste text instead",
