@@ -26,7 +26,7 @@ from tests.helpers import make_wedding, platform_auth
 
 
 def _job(wedding, status: str = AiJobStatus.QUEUED, **kw) -> AiJob:
-    return AiJob(wedding_id=wedding.id, kind="wizard", status=status, **kw)
+    return AiJob(wedding_id=wedding.id, kind="story_arc", status=status, **kw)
 
 
 # ---------------------------------------------------------------------------

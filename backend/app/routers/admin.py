@@ -367,6 +367,7 @@ def me(ctx: WeddingCtx = Depends(member_ctx), db: Session = Depends(get_db)) -> 
         can_publish=_can_publish(ctx),
         entitlements=effective_entitlements(db, wedding),
         storage_bytes_used=wedding.storage_bytes_used or 0,
+        setup_dismissed=bool((wedding.settings or {}).get("setup_dismissed")),
     )
 
 

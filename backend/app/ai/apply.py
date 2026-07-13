@@ -56,7 +56,7 @@ APPLY_SECTIONS = ("couple_names", "event_details", "story_arc", "glyph", "guests
 # produces is unreachable even if a stored proposal grows the key — a wizard
 # proposal smuggling a "guests" list writes no guests.
 SECTIONS_BY_KIND: dict[str, tuple[str, ...]] = {
-    "wizard": ("couple_names", "event_details", "story_arc"),
+    "details": ("couple_names", "event_details"),
     "story_arc": ("story_arc",),
     "glyph": ("glyph",),
     "guests": ("guests",),

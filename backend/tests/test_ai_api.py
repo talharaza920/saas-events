@@ -100,7 +100,7 @@ def _wedding_with_owner(db, slug: str = "wed-ai", **wedding_kwargs) -> Wedding:
     return w
 
 
-def _run_to_review(client, w, *, kind: str = "wizard") -> dict:
+def _run_to_review(client, w, *, kind: str = "story_arc") -> dict:
     input_ids = []
     if kind != "glyph":
         r = client.post(
@@ -135,7 +135,7 @@ def test_every_ai_endpoint_401_unauth_404_nonmember(db_session, client):
     vid = str(uuid.uuid4())
     cases = [
         ("post", f"{_base(w)}/inputs", {"text": "hello"}),
-        ("post", f"{_base(w)}/jobs", {"kind": "wizard"}),
+        ("post", f"{_base(w)}/jobs", {"kind": "details"}),
         ("get", f"{_base(w)}/jobs", None),
         ("get", f"{_base(w)}/jobs/{jid}", None),
         ("post", f"{_base(w)}/jobs/{jid}/advance", {}),
@@ -221,39 +221,69 @@ def test_job_create_idempotency_and_one_active(db_session, client):
 
 
 # ---------------------------------------------------------------------------
-# The full run over HTTP: wizard → review → apply
+# The full runs over HTTP: details → review → apply, then story → review → apply
+# (8.5a split the monolithic `wizard` kind into these two independent gates)
 # ---------------------------------------------------------------------------
-def test_wizard_full_run_and_apply_over_http(db_session, client):
+def test_details_then_story_full_run_and_apply_over_http(db_session, client):
     _enable_ai(db_session)
     w = _wedding_with_owner(db_session)
-    job = _run_to_review(client, w)
 
+    # 1. `details`: event facts only. Applying a SUBSET leaves the rest alone.
+    job = _run_to_review(client, w, kind="details")
     p = job["proposal"]
     assert p["couple_names"] == "Alex & Sam"
     assert p["event_details"]["venue"]["name"] == "Fern Hall"
-    assert p["grounding"]["all_supported"] is True
+    assert "story_arc" not in p  # the details kind never drafts prose
 
     r = client.post(
         f"{_base(w)}/jobs/{job['id']}/apply",
-        json={"selections": ["story_arc", "event_details"]},
+        json={"selections": ["event_details"]},
         headers=_auth(),
     )
-    assert r.status_code == 200
-    assert sorted(r.json()["applied"]) == ["event_details", "story_arc"]
+    assert r.status_code == 200 and r.json()["applied"] == ["event_details"]
+
+    db_session.expire_all()
+    w_db = db_session.execute(select(Wedding).where(Wedding.slug == w.slug)).scalar_one()
+    assert w_db.event_details["venue"] == "Fern Hall"
+    assert w_db.couple_names != "Alex & Sam"  # unselected section untouched
+
+    again = client.post(f"{_base(w)}/jobs/{job['id']}/apply", headers=_auth())
+    assert again.status_code == 409  # applied jobs don't apply twice
+
+    # 2. `story_arc`: its own run, its own review gate, its own apply.
+    story = _run_to_review(client, w, kind="story_arc")
+    assert story["proposal"]["grounding"]["all_supported"] is True
+
+    r = client.post(
+        f"{_base(w)}/jobs/{story['id']}/apply",
+        json={"selections": ["story_arc"]},
+        headers=_auth(),
+    )
+    assert r.status_code == 200 and r.json()["applied"] == ["story_arc"]
 
     db_session.expire_all()
     arc = db_session.execute(select(StoryArc)).scalars().one()
     assert arc.content["ai_generated"] is True  # provenance
-    w_db = db_session.execute(select(Wedding).where(Wedding.slug == w.slug)).scalar_one()
-    assert w_db.event_details["venue"] == "Fern Hall"
-    assert w_db.couple_names != "Alex & Sam"  # unselected section untouched
-    audit = db_session.execute(
+    applies = db_session.execute(
         select(AuditLog).where(AuditLog.action == "ai.job.apply")
-    ).scalars().one()
-    assert audit.detail["source"] == "ai"
+    ).scalars().all()
+    assert [a.detail["source"] for a in applies] == ["ai", "ai"]
 
-    again = client.post(f"{_base(w)}/jobs/{job['id']}/apply", headers=_auth())
-    assert again.status_code == 409  # applied jobs don't apply twice
+
+def test_details_proposal_cannot_write_a_story(db_session, client):
+    """SECTIONS_BY_KIND is per-kind, not per-proposal: a `details` job may not
+    apply a story_arc even if one were smuggled into its stored proposal."""
+    _enable_ai(db_session)
+    w = _wedding_with_owner(db_session)
+    job = _run_to_review(client, w, kind="details")
+
+    r = client.post(
+        f"{_base(w)}/jobs/{job['id']}/apply",
+        json={"selections": ["story_arc"]},
+        headers=_auth(),
+    )
+    assert r.status_code == 422
+    assert db_session.execute(select(StoryArc)).scalars().first() is None
 
 
 def test_advance_is_idempotent_per_step_over_http(db_session, client, fake):
@@ -261,7 +291,7 @@ def test_advance_is_idempotent_per_step_over_http(db_session, client, fake):
     w = _wedding_with_owner(db_session)
     r = client.post(f"{_base(w)}/inputs", json={"text": "Alex and Sam."}, headers=_auth())
     job_id = client.post(
-        f"{_base(w)}/jobs", json={"kind": "wizard", "input_ids": [r.json()["id"]]},
+        f"{_base(w)}/jobs", json={"kind": "story_arc", "input_ids": [r.json()["id"]]},
         headers=_auth(),
     ).json()["id"]
 

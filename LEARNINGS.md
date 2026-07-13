@@ -332,3 +332,32 @@ under `/api/internal/*` gated by `Authorization: Bearer $CRON_SECRET`
 (constant-time compare; unset secret → neutral 404 so the surface doesn't
 exist until ops enables it). Cron only issues GETs — register GET alongside
 POST. The purge job (`app/purge.py`) is the pattern to copy.
+
+## A terminal job status will unmount your review UI if you refetch
+The AI review panel lives inside whichever component owns the `job` state. That
+owner typically revives an in-flight run by refetching the job list and picking
+the ACTIVE one (`queued`/`running`/`awaiting_review`). Do NOT run that same
+refetch in the apply callback: `applied` is a terminal status, so the run drops
+out of the active list and the panel unmounts *the moment the couple hits
+Apply* — the success banner (and the glyph's "use it as your cover icon"
+switch, which lives in it) flashes and vanishes. Keep the applied job in local
+state and let the user dismiss it ("Start another"). `AiPanel` carried a comment
+about this; `AiAssist` re-learned it the hard way, and the smoke caught it only
+because the API check passed while the UI check failed — a combination worth
+treating as a signal, not a flake.
+
+## Local `.env` keys make "offline" smokes spend real money
+`backend/.env` holds real `GEMINI_API_KEY` / `GOOGLE_PLACES_API_KEY`. Setting
+only `AI_TEXT_PROVIDER=fake` fakes the *text* model — the pipeline still calls
+Google Places in `resolve` and Nano Banana in `images`. Run browser smokes with
+those two vars blanked as well (`AI_TEXT_PROVIDER=fake GEMINI_API_KEY=
+GOOGLE_PLACES_API_KEY= …uvicorn`); the pipeline degrades cleanly (venue keeps
+the couple's own words, beats stay text-only) which is exactly what the fake
+fixtures expect. The tell was a smoke asserting "Fern Hall" and getting the very
+real "Fern Hall Estate".
+
+## Puppeteer leaf-only text matching misses `<strong>Label:</strong> value`
+The smokes' `visibleHas` only scans elements with no element children, so a
+`<Typography><strong>Venue:</strong> Fern Hall</Typography>` is invisible to it
+(the leaf `<strong>` holds only "Venue:"). Use a `document.body.innerText`
+check for strings that straddle inline markup.

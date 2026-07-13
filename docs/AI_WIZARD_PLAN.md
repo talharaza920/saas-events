@@ -655,7 +655,7 @@ image before all images. Most slices EXPOSE machinery 8.4 already built
 (per-beat variants, steer, upload seam) rather than adding new kinds of
 machinery. Slices ship independently, in order.
 
-### 8.5a — Funnel: first-time setup flow + per-tab AI entry points
+### 8.5a — Funnel: first-time setup flow + per-tab AI entry points — **BUILT 2026-07-12**
 
 - `/create` slims to names + slug → the wedding exists immediately.
 - A first-time **3-step setup flow** (optional, every step skippable, and the

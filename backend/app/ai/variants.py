@@ -54,11 +54,11 @@ ARTIFACT_GLYPH = "glyph"
 # A single beat's image: "arc.beat.0", "arc.beat.1", … (index into the
 # CURRENT proposal's beats).
 ARTIFACT_BEAT_RE = re.compile(r"^arc\.beat\.(\d{1,2})$")
-# Which artifacts a job of each kind can regenerate (a wizard proposal has no
-# glyph — the glyph pipeline is its own kind). Beat images are validated by
-# _beat_index (they need a beat count, not a fixed list).
+# Which artifacts a job of each kind can regenerate (a `details` proposal has
+# nothing regenerable — it's extracted facts, which the owner simply edits).
+# Beat images are validated by _beat_index (they need a beat count, not a
+# fixed list).
 ARTIFACTS_BY_KIND: dict[str, tuple[str, ...]] = {
-    AiJobKind.WIZARD: (ARTIFACT_ARC_TEXT,),
     AiJobKind.STORY_ARC: (ARTIFACT_ARC_TEXT,),
     AiJobKind.GLYPH: (ARTIFACT_GLYPH,),
 }
@@ -68,7 +68,7 @@ REGEN_CREDIT_COST = 1  # after the free first regen of each artifact
 
 def _beat_index(job: AiJob, artifact: str) -> int | None:
     """The beat index for an `arc.beat.N` artifact of THIS job, or None."""
-    if job.kind not in (AiJobKind.WIZARD, AiJobKind.STORY_ARC):
+    if job.kind != AiJobKind.STORY_ARC:
         return None
     m = ARTIFACT_BEAT_RE.match(artifact)
     if not m:

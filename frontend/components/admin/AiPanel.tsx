@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import GroupAddIcon from "@mui/icons-material/GroupAdd";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -27,7 +26,7 @@ import AiRunProgress from "@/components/ai/AiRunProgress";
 const ACTIVE = new Set(["queued", "running", "awaiting_review"]);
 
 const KIND_LABELS: Record<string, string> = {
-  wizard: "Full draft",
+  details: "Key details",
   story_arc: "Story chapter",
   glyph: "Mark",
   guests: "Guest list",
@@ -48,10 +47,10 @@ const STATUS_COLORS: Record<string, "default" | "info" | "success" | "warning" |
 };
 
 /**
- * The wedding's AI assistant (AI_WIZARD_PLAN 8.4b): start a story-chapter or
- * mark run, watch it advance, review/steer/apply the result. Post-onboarding
- * regeneration is deliberately "just a new job" — same pipeline, same
- * metering, same review gate as the /create wizard.
+ * The AI tab (AI_WIZARD_PLAN 8.4b, re-scoped by 8.5a): credits, the mark
+ * designer, and the run history for this wedding. The details/story/guests
+ * assistants moved to the tabs that own those things — they are the same
+ * pipeline, metering and review gate, just started where the couple already is.
  */
 export default function AiPanel({
   me,
@@ -188,18 +187,19 @@ export default function AiPanel({
       ) : (
         <Paper variant="outlined" sx={{ p: 2.5 }}>
           <Stack spacing={2}>
-            <Typography variant="subtitle1">Start a run</Typography>
+            <Typography variant="subtitle1">Design a mark</Typography>
             <Typography variant="body2" color="text.secondary">
-              Paste anything — how you met, the proposal, a guest list from WhatsApp — or attach
-              a voice note, a photo, or the venue PDF. The AI drafts from it; you review
-              everything before it touches your site.
+              A single monochrome glyph for the cover — drafted from a hint, or from nothing at
+              all. The other three assistants live on the tab they belong to: <b>Details</b> fills
+              in your venue and date, <b>Story</b> drafts your chapters, <b>Guests</b> reads a
+              pasted list.
             </Typography>
             <TextField
               multiline
-              minRows={3}
+              minRows={2}
               fullWidth
-              label="What should it work from?"
-              placeholder="Required for a story chapter or guest list; optional inspiration for a mark."
+              label="Any hint for the mark? (optional)"
+              placeholder="Two rings, a mountain, our cat…"
               value={text}
               onChange={(e) => setText(e.target.value.slice(0, 20000))}
             />
@@ -230,22 +230,6 @@ export default function AiPanel({
               <Button
                 variant="contained"
                 startIcon={busy ? <CircularProgress size={16} /> : <AutoAwesomeIcon />}
-                disabled={busy || (!text.trim() && files.length === 0)}
-                onClick={() => start("story_arc")}
-              >
-                Draft a story chapter
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<GroupAddIcon />}
-                disabled={busy || (!text.trim() && files.length === 0)}
-                onClick={() => start("guests")}
-              >
-                Extract a guest list
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<AutoAwesomeIcon />}
                 disabled={busy}
                 onClick={() => start("glyph")}
               >

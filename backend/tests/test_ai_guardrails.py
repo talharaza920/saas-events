@@ -95,7 +95,7 @@ def _run_to_review(db, settings, job, fake) -> AiJob:
     return job
 
 
-def _reviewable_job(db, wedding, proposal: dict, kind: str = "wizard") -> AiJob:
+def _reviewable_job(db, wedding, proposal: dict, kind: str = "details") -> AiJob:
     """A job sitting in awaiting_review with an arbitrary (possibly hostile)
     stored proposal — apply must be safe against the DB blob, not just against
     what today's pipeline happens to build."""
@@ -191,20 +191,22 @@ def test_glyph_step_fails_cleanly_when_nothing_survives(db_session):
 # ---------------------------------------------------------------------------
 # 2. The apply allowlist — the model proposes, code disposes
 # ---------------------------------------------------------------------------
-def test_apply_wizard_end_to_end_writes_only_allowlisted_paths(db_session):
-    _enable_ai(db_session)
+def test_apply_details_then_story_writes_only_allowlisted_paths(db_session):
+    """Both post-8.5a kinds, end to end: `details` writes names + event keys and
+    NOTHING else (no arc); `story_arc` writes one arc and touches no detail."""
+    _enable_ai(db_session, ai_credits_included=5)
     w = make_wedding(db_session, "wed-apply", published=False)
     w.event_details = {"dress_code": "Garden evening", "venue": "Old Hall"}
     db_session.commit()
     s = _settings()
     inp = _add_text_input(db_session, w, "We're Alex and Sam, Fern Hall, May 1st 2027.")
-    job = create_job(db_session, s, w, kind="wizard", input_ids=[inp.id])
+    job = create_job(db_session, s, w, kind="details", input_ids=[inp.id])
     job = _run_to_review(db_session, s, job, _fake())
     assert job.status == "awaiting_review"
 
     result = apply_proposal(db_session, _settings(), w, job)
 
-    assert sorted(result["applied"]) == ["couple_names", "event_details", "story_arc"]
+    assert sorted(result["applied"]) == ["couple_names", "event_details"]
     db_session.refresh(w)
     assert w.couple_names == "Alex & Sam"
     assert w.content["nav"]["brand"] == "Alex & Sam"
@@ -213,7 +215,23 @@ def test_apply_wizard_end_to_end_writes_only_allowlisted_paths(db_session):
     assert w.event_details["date_display"] == "2027-05-01"
     assert w.event_details["dress_code"] == "Garden evening"  # untouched keys survive
     assert w.slug == "wed-apply" and w.published is False and w.status == "active"
+    # A details run drafts no prose, so it can create no arc.
+    assert db_session.execute(
+        select(StoryArc).where(StoryArc.wedding_id == w.id)
+    ).scalars().first() is None
+    assert job.status == "applied"
 
+    with pytest.raises(HTTPException) as exc:  # applying twice conflicts
+        apply_proposal(db_session, _settings(), w, job)
+    assert exc.value.status_code == 409
+
+    # The story is its own run, its own review, its own apply.
+    inp2 = _add_text_input(db_session, w, "We met at a bus stop.")
+    story = create_job(db_session, s, w, kind="story_arc", input_ids=[inp2.id])
+    story = _run_to_review(db_session, s, story, _fake())
+    assert apply_proposal(db_session, _settings(), w, story)["applied"] == ["story_arc"]
+
+    db_session.refresh(w)
     arcs = db_session.execute(select(StoryArc).where(StoryArc.wedding_id == w.id)).scalars().all()
     assert len(arcs) == 1
     assert arcs[0].content["ai_generated"] is True  # provenance stamped
@@ -221,15 +239,11 @@ def test_apply_wizard_end_to_end_writes_only_allowlisted_paths(db_session):
         {"text": "They met **at a bus stop**."},
         {"text": "Sam moved cities; Alex followed."},
     ]
-    assert job.status == "applied"
-    audit = db_session.execute(
+    assert w.event_details["venue"] == "Fern Hall"  # the arc wrote no details
+    applies = db_session.execute(
         select(AuditLog).where(AuditLog.action == "ai.job.apply")
-    ).scalars().one()
-    assert audit.detail["source"] == "ai"
-
-    with pytest.raises(HTTPException) as exc:  # applying twice conflicts
-        apply_proposal(db_session, _settings(), w, job)
-    assert exc.value.status_code == 409
+    ).scalars().all()
+    assert [a.detail["source"] for a in applies] == ["ai", "ai"]
 
 
 def test_apply_cannot_write_invite_tier_slug_status_or_published(db_session):
@@ -238,7 +252,7 @@ def test_apply_cannot_write_invite_tier_slug_status_or_published(db_session):
     no publish, no settings, no theme."""
     w = make_wedding(db_session, "wed-hostile", published=False)
     job = _reviewable_job(db_session, w, {
-        "kind": "wizard", "source": "ai",
+        "kind": "details", "source": "ai",
         "couple_names": "New & Names",
         "invite_tier": "plus_family",
         "slug": "hacked",
@@ -276,7 +290,7 @@ def test_apply_selection_subset_unknown_selection_and_wrong_tenant(db_session):
         "couple_names": "Only & Names",
         "story_arc": {"heading": "H", "beats": [{"text": "b", "image_prompt": "i"}]},
     }
-    job = _reviewable_job(db_session, w, proposal)
+    job = _reviewable_job(db_session, w, proposal, kind="story_arc")
 
     with pytest.raises(HTTPException) as exc:  # tenancy belt inside apply itself
         apply_proposal(db_session, _settings(), other, job)
@@ -298,7 +312,7 @@ def test_apply_rechecks_story_arc_entitlement_at_apply_time(db_session):
     w = make_wedding(db_session, "wed-arc-limit")
     job = _reviewable_job(db_session, w, {
         "story_arc": {"heading": "H", "beats": [{"text": "b", "image_prompt": "i"}]},
-    })
+    }, kind="story_arc")
     with pytest.raises(HTTPException) as exc:
         apply_proposal(db_session, _settings(), w, job)
     assert exc.value.status_code == 403
@@ -313,7 +327,7 @@ def test_apply_runs_the_banned_word_scan(db_session):
     job = _reviewable_job(db_session, w, {
         "couple_names": "Fine & Names",
         "story_arc": {"heading": "H", "beats": [{"text": "met at a Bus Stop", "image_prompt": "i"}]},
-    })
+    }, kind="story_arc")
     with pytest.raises(HTTPException) as exc:
         apply_proposal(db_session, _settings(), w, job)
     assert exc.value.status_code == 422
@@ -351,7 +365,7 @@ def test_apply_glyph_stores_only_the_sanitised_form(db_session):
 
 def test_apply_with_nothing_applicable_is_422(db_session):
     w = make_wedding(db_session, "wed-empty")
-    job = _reviewable_job(db_session, w, {"kind": "wizard", "source": "ai"})
+    job = _reviewable_job(db_session, w, {"kind": "details", "source": "ai"})
     with pytest.raises(HTTPException) as exc:
         apply_proposal(db_session, _settings(), w, job)
     assert exc.value.status_code == 422
@@ -375,7 +389,7 @@ def test_daily_ceiling_queues_the_job_instead_of_failing(db_session):
                                    value={"daily_cost_ceiling_usd": 0.01}))
     _spend(db_session, 20_000)  # $0.02 spent today — over the $0.01 ceiling
     inp = _add_text_input(db_session, w, "Alex and Sam, Fern Hall.")
-    job = create_job(db_session, s, w, kind="wizard", input_ids=[inp.id])
+    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
 
     with pytest.raises(HTTPException) as exc:
         advance_job(db_session, s, job, text_model=_fake())
@@ -399,7 +413,7 @@ def test_daily_ceiling_zero_disables_the_check(db_session):
     db_session.add(PlatformSetting(key=AI_SETTINGS_KEY, value={"daily_cost_ceiling_usd": 0}))
     _spend(db_session, 50_000_000)  # $50 today — irrelevant, ceiling off
     inp = _add_text_input(db_session, w, "Alex and Sam.")
-    job = create_job(db_session, s, w, kind="wizard", input_ids=[inp.id])
+    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
     job = advance_job(db_session, s, job, text_model=_fake())
     assert job.step == 1
 
@@ -414,9 +428,9 @@ def test_reap_expires_stuck_jobs_and_sweeps_orphan_inputs(db_session):
     fresh_w = make_wedding(db_session, "wed-fresh")
 
     stuck_inp = _add_text_input(db_session, stuck_w, "never finished")
-    stuck = create_job(db_session, s, stuck_w, kind="wizard", input_ids=[stuck_inp.id])
+    stuck = create_job(db_session, s, stuck_w, kind="story_arc", input_ids=[stuck_inp.id])
     stuck.expires_at = utcnow() - timedelta(minutes=5)
-    fresh = create_job(db_session, s, fresh_w, kind="wizard")
+    fresh = create_job(db_session, s, fresh_w, kind="story_arc")
 
     old_orphan = _add_text_input(db_session, fresh_w, "uploaded and abandoned")
     old_orphan.created_at = utcnow() - timedelta(days=2)
@@ -449,7 +463,7 @@ def test_reap_cron_endpoint_requires_the_shared_secret(client, make_client, db_s
 
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-cron-reap")
-    job = create_job(db_session, _settings(), w, kind="wizard")
+    job = create_job(db_session, _settings(), w, kind="story_arc")
     job.expires_at = utcnow() - timedelta(hours=1)
     db_session.commit()
 

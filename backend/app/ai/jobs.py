@@ -68,7 +68,7 @@ logger = logging.getLogger("app.ai")
 # per beat) — it processes a couple of beats per /advance call and repeats
 # until every beat is done, so no single HTTP request runs long.
 STEPS: dict[str, tuple[str, ...]] = {
-    AiJobKind.WIZARD: ("transcribe", "extract", "resolve", "draft", "images", "ground"),
+    AiJobKind.DETAILS: ("transcribe", "extract", "resolve"),
     AiJobKind.STORY_ARC: ("transcribe", "extract", "draft", "images", "ground"),
     AiJobKind.GLYPH: ("transcribe", "glyph"),
     AiJobKind.GUESTS: ("transcribe", "guests"),
@@ -254,6 +254,13 @@ def advance_job(
         return job  # already done — replays are harmless
     if job.status not in AiJobStatus.ACTIVE:
         raise HTTPException(status_code=409, detail=f"Job is {job.status}")
+    if job.kind not in STEPS:
+        # A row from before a kind was retired (8.5a demoted `wizard`). Retire
+        # it cleanly with a refund rather than KeyError-ing on its step list.
+        _terminate(db, settings, job, AiJobStatus.EXPIRED,
+                   "this run is from an older version of the assistant — start a new one")
+        db.commit()
+        return job
     if expected_step is not None:
         if expected_step < job.step:
             return job  # replay of a step that already ran
@@ -645,7 +652,7 @@ def _step_glyph(db, settings, job, state, text_model) -> None:
 def _build_proposal(job: AiJob) -> dict:
     state = job.state or {}
     proposal: dict = {"kind": job.kind, "source": "ai"}
-    if job.kind in (AiJobKind.WIZARD, AiJobKind.STORY_ARC):
+    if job.kind == AiJobKind.STORY_ARC:
         proposal["story_arc"] = state.get("draft")
         proposal["grounding"] = state.get("grounding")
         # Generated beat art rides NEXT TO the draft (never inside it — the
@@ -655,7 +662,7 @@ def _build_proposal(job: AiJob) -> dict:
     if job.kind == AiJobKind.GUESTS:
         proposal["guests"] = state.get("guests") or []
         proposal["guests_unresolved"] = state.get("guests_unresolved") or []
-    if job.kind == AiJobKind.WIZARD:
+    if job.kind == AiJobKind.DETAILS:
         facts = state.get("facts") or {}
         details: dict = {}
         for field, target in (("event_date", "date"), ("event_time", "time")):

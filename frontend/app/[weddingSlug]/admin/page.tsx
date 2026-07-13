@@ -42,6 +42,7 @@ import MembersPanel from "@/components/admin/MembersPanel";
 import ResponsesPanel from "@/components/admin/ResponsesPanel";
 import RsvpPanel from "@/components/admin/RsvpPanel";
 import SignInCard from "@/components/admin/SignInCard";
+import SetupChecklistCard from "@/components/admin/SetupChecklistCard";
 import StoryPanel from "@/components/admin/StoryPanel";
 import SummaryPanel from "@/components/admin/SummaryPanel";
 import ThemePanel from "@/components/admin/ThemePanel";
@@ -179,6 +180,18 @@ export default function AdminPage() {
 
         <LifecycleBanner me={data.me} onChanged={refresh} />
 
+        <SetupChecklistCard
+          me={data.me}
+          // Derived, never stored: a venue or a date means the details step is done.
+          hasDetails={Boolean(
+            (data.content.event_details as Record<string, unknown> | undefined)?.venue ||
+              (data.content.event_details as Record<string, unknown> | undefined)?.date_display,
+          )}
+          hasStory={data.arcs.length > 0}
+          hasGuests={data.guests.length > 0}
+          onDismissed={refresh}
+        />
+
         <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 3 }}>
           <Tab label="Overview" />
           <Tab label="Story" />
@@ -194,9 +207,10 @@ export default function AdminPage() {
 
         <Stack>
           {tab === 0 && <SummaryPanel summary={data.summary} />}
-          {tab === 1 && <StoryPanel arcs={data.arcs} onChanged={refresh} />}
+          {tab === 1 && <StoryPanel me={data.me} arcs={data.arcs} onChanged={refresh} />}
           {tab === 2 && (
             <DetailsPanel
+              me={data.me}
               content={data.content}
               sides={Array.from(
                 new Set(
@@ -215,6 +229,7 @@ export default function AdminPage() {
           {tab === 5 && <AiPanel me={data.me} onChanged={refresh} />}
           {tab === 6 && (
             <GuestsPanel
+              me={data.me}
               guests={data.guests}
               arcs={data.arcs}
               questions={data.questions}

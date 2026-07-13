@@ -98,7 +98,7 @@ def _run_to_review(db, settings, job, fake) -> AiJob:
 def test_create_requires_ai_enabled(db_session):
     w = make_wedding(db_session, "wed-gate")
     with pytest.raises(HTTPException) as exc:
-        create_job(db_session, _settings(), w, kind="wizard")
+        create_job(db_session, _settings(), w, kind="story_arc")
     assert exc.value.status_code == 403
     assert "AI assistance" in exc.value.detail
 
@@ -109,20 +109,20 @@ def test_create_respects_kill_switch(db_session):
     db_session.add(PlatformSetting(key=AI_SETTINGS_KEY, value={"kill_switch": True}))
     db_session.commit()
     with pytest.raises(HTTPException) as exc:
-        create_job(db_session, _settings(), w, kind="wizard")
+        create_job(db_session, _settings(), w, kind="story_arc")
     assert exc.value.status_code == 503
 
 
 def test_one_active_job_and_idempotency(db_session):
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-active")
-    job = create_job(db_session, _settings(), w, kind="wizard", idempotency_key="k1")
-    assert (job.status, job.steps_total, job.credits_held) == ("queued", 6, 0)  # free arc
+    job = create_job(db_session, _settings(), w, kind="story_arc", idempotency_key="k1")
+    assert (job.status, job.steps_total, job.credits_held) == ("queued", 5, 0)  # free arc
 
     # Same key → same job, no second charge; new key → 409 (DB partial index).
-    assert create_job(db_session, _settings(), w, kind="wizard", idempotency_key="k1").id == job.id
+    assert create_job(db_session, _settings(), w, kind="story_arc", idempotency_key="k1").id == job.id
     with pytest.raises(HTTPException) as exc:
-        create_job(db_session, _settings(), w, kind="wizard", idempotency_key="k2")
+        create_job(db_session, _settings(), w, kind="story_arc", idempotency_key="k2")
     assert exc.value.status_code == 409
 
     # Audit trail rode the creation commit.
@@ -136,11 +136,11 @@ def test_credits_free_arc_then_charge_then_refuse(db_session):
     w = make_wedding(db_session, "wed-credits")
     s = _settings()
 
-    first = create_job(db_session, s, w, kind="wizard")
+    first = create_job(db_session, s, w, kind="story_arc")
     assert first.credits_held == 0  # the included free arc
     cancel_job(db_session, s, first)  # cancelled = refunded AND frees the allowance…
 
-    free_again = create_job(db_session, s, w, kind="wizard")
+    free_again = create_job(db_session, s, w, kind="story_arc")
     assert free_again.credits_held == 0  # …so the next run is still free
     free_again.status = "applied"  # simulate the couple applying it
     db_session.commit()
@@ -150,8 +150,8 @@ def test_credits_free_arc_then_charge_then_refuse(db_session):
     charged.status = "applied"
     db_session.commit()
 
-    with pytest.raises(HTTPException) as exc:  # 5 - 3 = 2 left, wizard costs 5
-        create_job(db_session, s, w, kind="wizard")
+    with pytest.raises(HTTPException) as exc:  # 5 - 3 = 2 left, another arc costs 3
+        create_job(db_session, s, w, kind="story_arc")
     assert exc.value.status_code == 403 and "AI credits" in exc.value.detail
 
 
@@ -161,14 +161,14 @@ def test_inputs_are_tenant_scoped(db_session):
     other = make_wedding(db_session, "wed-other")
     foreign_input = _add_text_input(db_session, other, "someone else's wedding")
     with pytest.raises(HTTPException) as exc:
-        create_job(db_session, _settings(), mine, kind="wizard", input_ids=[foreign_input.id])
+        create_job(db_session, _settings(), mine, kind="story_arc", input_ids=[foreign_input.id])
     assert exc.value.status_code == 404  # existence hidden, never claimed
 
 
 # ---------------------------------------------------------------------------
 # The happy path
 # ---------------------------------------------------------------------------
-def test_wizard_runs_to_review_with_proposal(db_session):
+def test_story_arc_runs_to_review_with_proposal(db_session):
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-run")
     s = _settings()
@@ -177,16 +177,16 @@ def test_wizard_runs_to_review_with_proposal(db_session):
         "We're Alex and Sam, getting married at Fern Hall on May 1st, 2027.",
     )
     fake = _fake()
-    job = create_job(db_session, s, w, kind="wizard", input_ids=[inp.id])
+    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
 
     job = _run_to_review(db_session, s, job, fake)
 
     assert job.status == "awaiting_review"
-    assert job.step == job.steps_total == 6
+    assert job.step == job.steps_total == 5
     # Transcribe: media→text before any model call; the input keeps its transcript.
     db_session.refresh(inp)
     assert "Fern Hall" in inp.transcript
-    # Three text-LLM calls (extract/draft/ground) — resolve is code, no model.
+    # Three text-LLM calls (extract/draft/ground) — no model writes the details.
     assert [c.prompt.key for c in fake.calls] == [
         "extract.system", "draft_arc.system", "ground.system"
     ]
@@ -195,17 +195,47 @@ def test_wizard_runs_to_review_with_proposal(db_session):
     assert all(r.job_id == job.id for r in ledger)
 
     p = job.proposal
-    assert p["kind"] == "wizard" and p["source"] == "ai"
-    assert p["couple_names"] == "Alex & Sam"
+    assert p["kind"] == "story_arc" and p["source"] == "ai"
     assert p["story_arc"]["heading"] == "Alex & Sam"
     assert p["grounding"]["all_supported"] is True
-    # No Places key → the venue is the couple's own words, nothing invented.
-    assert p["event_details"]["venue"] == {"name": "Fern Hall", "address": None}
-    assert p["event_details"]["date"]["value"] == "2027-05-01"
+    # 8.5a: the story kind proposes a story and nothing else — the event facts
+    # are the `details` kind's job, and apply's SECTIONS_BY_KIND agrees.
+    assert "event_details" not in p and "couple_names" not in p
 
     # Advancing a finished job is an idempotent no-op.
     again = advance_job(db_session, s, job, text_model=fake)
     assert again.status == "awaiting_review" and len(fake.calls) == 3
+
+
+def test_details_run_extracts_event_facts_only(db_session):
+    """8.5a: the `details` kind is transcribe → extract → resolve. It fills the
+    Details tab from a blurb or a voice note; it never drafts prose, so it makes
+    two model calls, not four, and its proposal carries no story."""
+    _enable_ai(db_session, ai_credits_included=5, ai_arc_generations_included=0)
+    w = make_wedding(db_session, "wed-details")
+    s = _settings()
+    inp = _add_text_input(
+        db_session, w,
+        "We're Alex and Sam, getting married at Fern Hall on May 1st, 2027.",
+    )
+    fake = _fake()
+    job = create_job(db_session, s, w, kind="details", input_ids=[inp.id])
+    assert job.credits_held == 1  # no free-arc allowance: details isn't an arc
+
+    job = _run_to_review(db_session, s, job, fake)
+
+    assert job.status == "awaiting_review"
+    assert job.step == job.steps_total == 3
+    # ONE text-LLM call: extract. resolve is code (Places), transcribe is Gemini.
+    assert [c.prompt.key for c in fake.calls] == ["extract.system"]
+
+    p = job.proposal
+    assert p["kind"] == "details" and p["source"] == "ai"
+    assert p["couple_names"] == "Alex & Sam"
+    # No Places key → the venue is the couple's own words, nothing invented.
+    assert p["event_details"]["venue"] == {"name": "Fern Hall", "address": None}
+    assert p["event_details"]["date"]["value"] == "2027-05-01"
+    assert "story_arc" not in p and "grounding" not in p
 
 
 def test_step_replay_is_noop_and_future_step_conflicts(db_session):
@@ -214,7 +244,7 @@ def test_step_replay_is_noop_and_future_step_conflicts(db_session):
     s = _settings()
     inp = _add_text_input(db_session, w, "Alex and Sam, Fern Hall.")
     fake = _fake()
-    job = create_job(db_session, s, w, kind="wizard", input_ids=[inp.id])
+    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
     job = advance_job(db_session, s, job, text_model=fake, expected_step=0)  # transcribe
     assert job.step == 1
 
@@ -264,8 +294,8 @@ def test_refusal_fails_job_and_refunds(db_session):
     fake = _fake()
     fake.responses["draft_arc.system"] = ProviderRefusal("content declined")
 
-    job = create_job(db_session, s, w, kind="wizard", input_ids=[inp.id])
-    assert job.credits_held == 5
+    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
+    assert job.credits_held == 3
     job = _run_to_review(db_session, s, job, fake)
 
     assert job.status == "failed"
@@ -283,7 +313,7 @@ def test_media_input_without_gemini_fails_cleanly(db_session):
     db_session.add(photo)
     db_session.commit()
 
-    job = create_job(db_session, s, w, kind="wizard", input_ids=[photo.id])
+    job = create_job(db_session, s, w, kind="story_arc", input_ids=[photo.id])
     job = advance_job(db_session, s, job, text_model=_fake())  # transcribe step
     assert job.status == "failed"
     assert "Gemini" in job.error or "media" in job.error.lower()
@@ -295,13 +325,13 @@ def test_cancel_and_expiry_refund(db_session):
     w = make_wedding(db_session, "wed-cancel")
     s = _settings()
 
-    job = create_job(db_session, s, w, kind="wizard")
+    job = create_job(db_session, s, w, kind="story_arc")
     cancelled = cancel_job(db_session, s, job)
     assert cancelled.status == "cancelled" and cancelled.credits_held == 0
     with pytest.raises(HTTPException):  # cancelling twice conflicts
         cancel_job(db_session, s, cancelled)
 
-    job2 = create_job(db_session, s, w, kind="wizard")
+    job2 = create_job(db_session, s, w, kind="story_arc")
     job2.expires_at = utcnow() - timedelta(minutes=1)
     db_session.commit()
     job2 = advance_job(db_session, s, job2, text_model=_fake())

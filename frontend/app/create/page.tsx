@@ -16,10 +16,8 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
-import { adminApi, aiApi, AdminAuthError, setAdminWedding, type AiJobAdmin } from "@/lib/adminApi";
+import { AdminAuthError } from "@/lib/adminApi";
 import { meApi } from "@/lib/meApi";
-import AiReviewPanel from "@/components/ai/AiReviewPanel";
-import AiRunProgress from "@/components/ai/AiRunProgress";
 import SignInCard from "@/components/admin/SignInCard";
 
 /** Mirror of the backend's suggest_slug ('Alex & Sam' → 'alex-and-sam'). */
@@ -34,13 +32,11 @@ function suggestSlug(coupleNames: string): string {
 }
 
 /**
- * The creation wizard (SAAS_PLAN 2.1 + AI_WIZARD_PLAN 8.4b): couple names →
- * auto-suggested, live-validated slug → optional date/venue → optionally, a
- * pasted story the AI drafts the site from. The wedding is created FIRST (the
- * AI job then runs under the normal membership-checked admin API — the plan's
- * "wizard creates the wedding first" rule); the AI's proposal is reviewed and
- * applied right here before landing on the dashboard. The backend re-validates
- * everything; this page just makes it pleasant.
+ * Create a wedding (SAAS_PLAN 2.1 + AI_WIZARD_PLAN 8.5a): names and a web
+ * address, nothing more — the wedding exists immediately, and everything else
+ * (details, story, guests) is filled in by the setup flow this hands off to, or
+ * later from the dashboard tabs. Asking for the whole world here was the old
+ * wizard's mistake: it made a form out of what should be a conversation.
  */
 export default function CreateWeddingPage() {
   const router = useRouter();
@@ -48,18 +44,10 @@ export default function CreateWeddingPage() {
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [slugState, setSlugState] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [venue, setVenue] = useState("");
-  const [dateIso, setDateIso] = useState("");
-  const [story, setStory] = useState("");
   const [busy, setBusy] = useState(false);
   const [needsAuth, setNeedsAuth] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Set once the wedding exists; from then on this page runs the AI wizard.
-  const [adminPath, setAdminPath] = useState<string | null>(null);
-  const [aiNotice, setAiNotice] = useState<string | null>(null);
-  const [job, setJob] = useState<AiJobAdmin | null>(null);
 
   const effectiveSlug = slugTouched ? slug : suggestSlug(coupleNames);
 
@@ -87,13 +75,11 @@ export default function CreateWeddingPage() {
   }, []);
 
   useEffect(() => {
-    if (!adminPath) checkSlug(effectiveSlug);
-  }, [effectiveSlug, checkSlug, adminPath]);
+    checkSlug(effectiveSlug);
+  }, [effectiveSlug, checkSlug]);
 
   if (needsAuth) {
-    return (
-      <SignInCard title="Create a wedding" subtitle="Sign in first — it takes a minute." />
-    );
+    return <SignInCard title="Create a wedding" subtitle="Sign in first — it takes a minute." />;
   }
 
   const submit = async () => {
@@ -103,28 +89,8 @@ export default function CreateWeddingPage() {
       const created = await meApi.createWedding({
         couple_names: coupleNames.trim(),
         slug: effectiveSlug,
-        venue: venue.trim() || null,
-        date_iso: dateIso || null,
       });
-      const text = story.trim();
-      if (!text) {
-        router.push(created.admin_path);
-        return;
-      }
-      // The wedding exists — everything below runs under its admin API.
-      setAdminWedding(created.slug);
-      setAdminPath(created.admin_path);
-      const me = await adminApi.me();
-      if (me.entitlements?.ai_enabled !== true) {
-        setAiNotice(
-          "Your wedding is ready — but AI assistance isn't part of this plan, so your story wasn't used. Everything can still be written by hand from the dashboard.",
-        );
-        setBusy(false);
-        return;
-      }
-      const input = await aiApi.createInput(text);
-      setJob(await aiApi.createJob("wizard", [input.id], {}, crypto.randomUUID()));
-      setBusy(false);
+      router.push(`/${created.slug}/setup`);
     } catch (e) {
       if (e instanceof AdminAuthError) setNeedsAuth(true);
       else setError(e instanceof Error ? e.message : "Could not create the wedding.");
@@ -134,36 +100,6 @@ export default function CreateWeddingPage() {
 
   const canSubmit =
     coupleNames.trim().length >= 3 && effectiveSlug.length >= 3 && slugState?.ok !== false && !busy;
-
-  // --- Phase 2: the wedding exists; the AI drafts, you review ---------------
-  if (adminPath) {
-    return (
-      <Container maxWidth="md" sx={{ py: 6 }}>
-        <Paper sx={{ p: 4 }}>
-          <Stack spacing={2}>
-            <Typography variant="h5">Drafting your site</Typography>
-            {aiNotice && <Alert severity="info">{aiNotice}</Alert>}
-            {error && (
-              <Alert severity="error" onClose={() => setError(null)}>
-                {error}
-              </Alert>
-            )}
-            {job && <AiRunProgress job={job} onJob={setJob} />}
-            {job &&
-              (job.status === "awaiting_review" ||
-                job.status === "applied" ||
-                job.status === "failed" ||
-                job.status === "cancelled") && <AiReviewPanel job={job} onJob={setJob} />}
-            <Box>
-              <Button variant={job?.status === "applied" ? "contained" : "text"} component={NextLink} href={adminPath}>
-                {job?.status === "applied" ? "Go to your dashboard" : "Skip — take me to the dashboard"}
-              </Button>
-            </Box>
-          </Stack>
-        </Paper>
-      </Container>
-    );
-  }
 
   return (
     <Container maxWidth="sm" sx={{ py: 6 }}>
@@ -175,8 +111,8 @@ export default function CreateWeddingPage() {
           Create your wedding
         </Typography>
         <Typography color="text.secondary" sx={{ mb: 3 }}>
-          You&apos;ll start from a neutral template — every word, image and color is editable
-          afterwards.
+          Just the names for now. We&apos;ll help you fill in the rest next — and every word, image
+          and colour stays editable afterwards.
         </Typography>
 
         {error && (
@@ -215,34 +151,10 @@ export default function CreateWeddingPage() {
             error={slugState?.ok === false}
             color={slugState?.ok ? "success" : undefined}
           />
-          <TextField
-            label="Venue (optional)"
-            value={venue}
-            onChange={(e) => setVenue(e.target.value)}
-            fullWidth
-          />
-          <TextField
-            label="Wedding date (optional)"
-            type="date"
-            value={dateIso}
-            onChange={(e) => setDateIso(e.target.value)}
-            fullWidth
-            slotProps={{ inputLabel: { shrink: true } }}
-          />
-          <TextField
-            label="Your story, in your own words (optional)"
-            value={story}
-            onChange={(e) => setStory(e.target.value.slice(0, 20000))}
-            fullWidth
-            multiline
-            minRows={4}
-            placeholder="How you met, the proposal, the venue, the date — paste anything. The AI drafts your site from it, and nothing goes live until you've reviewed it."
-            helperText="Leave blank to start from the template and write everything yourself."
-          />
 
           <Box>
             <Button variant="contained" size="large" disabled={!canSubmit} onClick={submit}>
-              {busy ? <CircularProgress size={22} /> : story.trim() ? "Create & draft with AI" : "Create wedding"}
+              {busy ? <CircularProgress size={22} /> : "Create wedding"}
             </Button>
           </Box>
         </Stack>

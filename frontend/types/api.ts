@@ -1529,6 +1529,11 @@ export interface components {
              * @default 0
              */
             storage_bytes_used: number;
+            /**
+             * Setup Dismissed
+             * @default false
+             */
+            setup_dismissed: boolean;
         };
         /** AdminSummary */
         AdminSummary: {
@@ -1709,7 +1714,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "wizard" | "story_arc" | "glyph" | "guests";
+            kind: "details" | "story_arc" | "glyph" | "guests";
             /** Input Ids */
             input_ids?: string[];
             /** Options */
@@ -3391,6 +3396,8 @@ export interface components {
             phone_region?: string | null;
             /** Rsvp Deadline */
             rsvp_deadline?: string | null;
+            /** Setup Dismissed */
+            setup_dismissed?: boolean | null;
         };
         /**
          * WishAdmin

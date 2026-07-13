@@ -24,7 +24,7 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 const STEPS_BY_KIND: Record<string, string[]> = {
-  wizard: ["transcribe", "extract", "resolve", "draft", "images", "ground"],
+  details: ["transcribe", "extract", "resolve"],
   story_arc: ["transcribe", "extract", "draft", "images", "ground"],
   glyph: ["transcribe", "glyph"],
   guests: ["transcribe", "guests"],

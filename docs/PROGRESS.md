@@ -335,9 +335,27 @@ there).
   → apply → icon switch (API-checked `icon_mode=svg`), guest cover renders
   the stored sanitised mark, platform AI console, `/create` story wizard
   through to the dashboard handoff.
+- [x] **8.5a Funnel — DONE (local) 2026-07-12.** The monolithic `wizard` kind
+  is **demoted to `details`** (transcribe → extract → resolve only; 1 text
+  call, 1 credit, no free-arc allowance — that stays with `story_arc`), and
+  its apply allowlist shrinks to `couple_names` + `event_details`
+  (`SECTIONS_BY_KIND`). A retired-kind job row now expires with a refund
+  instead of KeyError-ing on its step list. `/create` slims to **names +
+  slug** and hands off to a new **`/{weddingSlug}/setup`** — three skippable
+  steps (Key details → Your story → Guest list), each embedding the same new
+  **`AiAssist`** component the tabs now use, so there is no parallel wizard
+  code path. Per-tab AI entry points: Details (`details`), Story
+  (`story_arc`), Guests (`guests`, beside the existing deterministic import);
+  the AI tab keeps credits, the mark designer and run history.
+  `SetupChecklistCard` on the wedding dashboard re-enters the flow —
+  completion is **derived** from the wedding (details/arcs/guests), so only
+  the owner's `settings.setup_dismissed` is stored (`AdminMe.setup_dismissed`
+  + the existing owner-only settings PATCH). Gotcha fixed in review: after an
+  apply, `AiAssist` must NOT re-derive its job from the active list —
+  `applied` is terminal, so the refetch unmounted the success state the
+  instant the couple applied.
 - [ ] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
-  Phase 8.5; build order a→e):** 8.5a funnel (slim /create + skippable
-  3-step setup + `details` kind) · 8.5b staged story wizard (style presets,
+  Phase 8.5; build order a→e; 8.5a DONE):** 8.5b staged story wizard (style presets,
   editable outline incl. climax image, direct proposal edits,
   confirm→first-image→illustrate-all, per-image credits) · 8.5c guests
   ask-back loop + spreadsheet routing · 8.5d likeness behind
@@ -351,7 +369,25 @@ there).
   provider); decision on forcing AI-drafted weddings through the approval
   queue; likeness legal framing before public launch.
 
-## Test & verification status (2026-07-12, post-8.1c)
+## Test & verification status (2026-07-12, post-8.5a)
+
+- `pytest`: **369 passed, 1 skipped.** 8.5a reshaped the AI tests around the
+  kind split: `test_ai_pipeline.py` gains `test_details_run_extracts_event_
+  facts_only` (3 steps, ONE model call, no story in the proposal) and its
+  happy path becomes a `story_arc` run; `test_ai_api.py` proves the two
+  independent HTTP gates (details apply → venue; story apply → arc) plus
+  `test_details_proposal_cannot_write_a_story` (SECTIONS_BY_KIND is per-kind,
+  not per-proposal); `test_ai_guardrails.py`'s end-to-end apply now covers
+  both kinds.
+- AI smoke (`node scripts/smoke-ai.mjs`, backend with `AI_TEXT_PROVIDER=fake`
+  **and blank `GEMINI_API_KEY`/`GOOGLE_PLACES_API_KEY`** — otherwise the run
+  hits the real Places + Nano-Banana APIs and spends money): **36/36** — the
+  whole 8.5a funnel in a real browser with API-verified writes (details run
+  on the Details tab → venue persisted; story on Story; mark on AI; guests on
+  Guests; `/create` → `/setup` → three skippable steps → dismissed checklist).
+- E2E smoke (`node scripts/smoke-e2e.mjs`): **21/21**, unchanged by 8.5a.
+
+## Test & verification status (2026-07-12, post-8.1c — kept for history)
 
 - `pytest`: **367 passed, 1 skipped** (offline, in-memory SQLite; the skip is
   the golden-set "no recordings" notice, which self-disables once

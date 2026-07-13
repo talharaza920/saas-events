@@ -52,6 +52,7 @@ import {
   type AnswerAdmin,
   type AnswerValue,
   type CompanionAdmin,
+  type AdminMe,
   type CompanionUpdate,
   type ContentAdmin,
   type GuestAdmin,
@@ -59,6 +60,7 @@ import {
   type StoryArcAdmin,
 } from "@/lib/adminApi";
 import { DEFAULT_INVITE_MESSAGE } from "@/lib/content";
+import AiAssist from "@/components/ai/AiAssist";
 
 import { isAnswered } from "./AnswerField";
 import { applyMultiSort, ColumnSettings, SortBar, useColumnPrefs, useMultiSort } from "./columnPrefs";
@@ -297,12 +299,14 @@ function distinctValues(guests: GuestAdmin[], pick: (g: GuestAdmin) => string | 
 }
 
 export default function GuestsPanel({
+  me,
   guests,
   arcs = [],
   questions = [],
   content,
   onChanged,
 }: {
+  me: AdminMe;
   guests: GuestAdmin[];
   arcs?: StoryArcAdmin[];
   questions?: QuestionAdmin[];
@@ -620,6 +624,22 @@ export default function GuestsPanel({
       </Box>
 
       <ImportPanel onChanged={onChanged} />
+
+      {/* 8.5a: the AI entry point sits beside the deterministic import — a real
+          spreadsheet should go through ImportPanel (no model, no cost); this is
+          for the messy paste that isn't one. */}
+      <AiAssist
+        me={me}
+        kind="guests"
+        blurb={
+          "Got a list that isn't a spreadsheet — a WhatsApp thread, a note, a photo of a page? " +
+          "Paste or attach it and it pulls out the names. Who gets a +1 is worked out from your " +
+          "own markers, and every row is yours to check before it's added."
+        }
+        placeholder="Jordan Lee, Riley Park +1, Casey Nguyen + 2 kids…"
+        cta="Read my guest list"
+        onApplied={onChanged}
+      />
 
       {guests.length > 0 && (
         <GuestFilterBar

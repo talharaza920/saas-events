@@ -27,7 +27,8 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import dayjs, { type Dayjs } from "dayjs";
 
-import { type ContentAdmin } from "@/lib/adminApi";
+import { type AdminMe, type ContentAdmin } from "@/lib/adminApi";
+import AiAssist from "@/components/ai/AiAssist";
 import { DEFAULT_INVITE_MESSAGE, defaultDayCells, LANDING_DEFAULTS } from "@/lib/content";
 import type { BrandIconMode, DayCell } from "@/lib/content";
 import { defaultThemeConfig } from "@/theme/defaultThemeConfig";
@@ -240,10 +241,12 @@ function TokenSwatchPicker({
 // The panel. Each section owns its draft; the backend deep-merges partials.
 // ===========================================================================
 export default function DetailsPanel({
+  me,
   content,
   sides,
   onChanged,
 }: {
+  me: AdminMe;
   content: ContentAdmin;
   // Distinct guest sides (e.g. ["Sam", "Alex"]) for the per-side capacity editor.
   sides: string[];
@@ -458,6 +461,21 @@ export default function DetailsPanel({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Every word and detail on the invitation. Each section saves on its own.
       </Typography>
+
+      <Box sx={{ mb: 2 }}>
+        <AiAssist
+          me={me}
+          kind="details"
+          blurb={
+            "Paste the message you sent everyone — or record a voice note — and it pulls out " +
+            "the venue, date and time. The venue is looked up for a real address rather than " +
+            "guessed, and nothing is saved until you approve it."
+          }
+          placeholder="We're getting married at Fern Hall on May 1st, 2027 at 3pm…"
+          cta="Fill in my details"
+          onApplied={onChanged}
+        />
+      </Box>
 
       {/* Names & cover ----------------------------------------------------- */}
       <SectionCard

@@ -113,7 +113,7 @@ export type AiJobAdmin = Omit<components["schemas"]["AiJobAdmin"], "proposal" | 
 };
 export type AiApplyResult = components["schemas"]["AiApplyResult"];
 export type AiCreditsInfo = components["schemas"]["AiCreditsInfo"];
-export type AiJobKind = "wizard" | "story_arc" | "glyph" | "guests";
+export type AiJobKind = "details" | "story_arc" | "glyph" | "guests";
 // arc.beat.N = that beat's generated image.
 export type AiArtifact = "arc.text" | "glyph" | `arc.beat.${number}`;
 
@@ -232,7 +232,11 @@ export const adminApi = {
   submitApproval: () => req<LifecycleResult>("/submit-approval", { method: "POST" }),
   setPublished: (published: boolean) =>
     req<LifecycleResult>("/publish", { method: "POST", body: JSON.stringify({ published }) }),
-  updateWeddingSettings: (s: { admins_can_publish?: boolean; phone_region?: string }) =>
+  updateWeddingSettings: (s: {
+    admins_can_publish?: boolean;
+    phone_region?: string;
+    setup_dismissed?: boolean;
+  }) =>
     req<Record<string, unknown>>("/settings", { method: "PATCH", body: JSON.stringify(s) }),
   archiveWedding: () => req<LifecycleResult>("", { method: "DELETE" }),
 

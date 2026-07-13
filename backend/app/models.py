@@ -553,11 +553,13 @@ class WeddingPlan(Base):
 class AiJobKind:
     """What a job produces (plain strings — adding one needs no migration)."""
 
-    WIZARD = "wizard"
+    # 8.5a demoted the monolithic `wizard` kind to `details` (event facts only).
+    # Story, mark and guests are their own kinds, each with its own entry point.
+    DETAILS = "details"
     STORY_ARC = "story_arc"
     GLYPH = "glyph"
     GUESTS = "guests"
-    ALL = (WIZARD, STORY_ARC, GLYPH, GUESTS)
+    ALL = (DETAILS, STORY_ARC, GLYPH, GUESTS)
 
 
 class AiJobStatus:

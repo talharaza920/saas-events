@@ -1,9 +1,10 @@
-/** Dev-only AI wizard smoke (AI_WIZARD_PLAN 8.4b): drives the REAL UI through
- * the whole loop — admin AI tab (story-chapter run → amber grounding flag →
- * regenerate → pick the other variant → apply, then a mark run → apply → "use
- * as cover icon"), the guest cover rendering the AI mark, the platform AI
- * console, and the /create story wizard — with server-side API checks where a
- * visual can lie.
+/** Dev-only AI smoke (AI_WIZARD_PLAN 8.4b, re-pointed at the 8.5a funnel):
+ * drives the REAL UI through every AI entry point where it now lives — Details
+ * tab (`details` run → apply → venue persisted), Story tab (story run → amber
+ * grounding flag → regenerate → pick the other variant → apply), AI tab (mark →
+ * apply → "use as cover icon"), Guests tab (pasted list → deterministic tiers),
+ * the guest cover rendering the AI mark, the platform AI console, and the
+ * /create → /setup handoff — with server-side API checks where a visual can lie.
  * Requires backend :8000 (AI_TEXT_PROVIDER=fake) + frontend :3000 + a
  * scripts.dev_setup seed (which enables AI on the local default plan).
  * Usage: node scripts/smoke-ai.mjs
@@ -46,6 +47,10 @@ const visibleHas = (text) =>
       ),
     text,
   );
+/** Rendered page text. Use where the string is split across inline elements
+ * (e.g. "<strong>Venue:</strong> Fern Hall"), which visibleHas's leaf-only
+ * scan can't see. */
+const bodyHas = (text) => page.evaluate((t) => document.body.innerText.includes(t), text);
 /** Poll until the text is visible (the fake pipeline still takes real HTTP round-trips). */
 async function waitFor(text, attempts = 30) {
   for (let i = 0; i < attempts; i++) {
@@ -74,15 +79,20 @@ const clickVariant = (label) =>
 const api = (path) =>
   fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${TOKEN}` } }).then((r) => r.json());
 
+/** Open a tab on the wedding dashboard from a clean load. */
+async function openTab(label) {
+  await page.goto("http://localhost:3000/alex-and-sam/admin", { waitUntil: "networkidle0" });
+  await sleep(1500);
+  await clickText('button[role="tab"]', label);
+  await sleep(900);
+}
+
 const STORY =
   "We're Alex and Sam. We met at a bus stop in the rain and we're getting married at Fern Hall on May 1st, 2027.";
 
-// --- 1. Admin AI tab: story-chapter run end to end ---------------------------
-await page.goto("http://localhost:3000/alex-and-sam/admin", { waitUntil: "networkidle0" });
-await sleep(1500);
-await clickText('button[role="tab"]', "AI");
-await sleep(800);
-ok("admin AI tab: panel + credits render", (await visibleHas("AI assistant")) && (await visibleHas("Credits:")));
+// --- 1. Details tab: the `details` run (8.5a's demoted wizard) ----------------
+await openTab("Details");
+ok("details tab: AI entry point present", await visibleHas("Key details with AI"));
 
 // A leftover active run (re-run of this script) would 409 the new one.
 if (await visibleHas("Discard this run")) {
@@ -90,8 +100,30 @@ if (await visibleHas("Discard this run")) {
   await sleep(800);
 }
 
-ok("admin AI tab: story textarea present", await typeStory("Required for a story chapter", STORY));
-await clickText("button", "Draft a story chapter");
+ok("details run: textarea present", await typeStory("Fern Hall on May 1st", STORY));
+await clickText("button", "Fill in my details");
+ok("details run: reaches review", await waitFor("Here's what it made"));
+ok("details run: proposes the extracted venue", await bodyHas("Fern Hall"));
+await page.screenshot({ path: `${OUT}/ai-details-review.png` });
+await clickText("button", "Apply");
+ok("details run: applied", await waitFor("Applied to your wedding"));
+
+const content = await api("/api/w/alex-and-sam/admin/content");
+ok(
+  "details run: venue persisted through the allowlisted writer",
+  content.event_details?.venue === "Fern Hall",
+  content.event_details?.venue,
+);
+
+// --- 2. Story tab: story-chapter run end to end -------------------------------
+await openTab("Story");
+ok("story tab: AI entry point present", await visibleHas("Story chapter with AI"));
+ok("story run: textarea present", await typeStory("bus stop in the rain", STORY));
+// The seeded template already has an arc, so the CTA is the "another" variant;
+// on an empty wedding it reads "Draft my story".
+if (!(await clickText("button", "Draft another chapter"))) {
+  await clickText("button", "Draft my story");
+}
 ok("story run: reaches review", await waitFor("Here's what it made"));
 ok("story run: amber grounding flag shown", await visibleHas("A fact-check pass"));
 await page.screenshot({ path: `${OUT}/ai-story-review.png` });
@@ -117,17 +149,19 @@ const arcs = await api("/api/w/alex-and-sam/admin/story-arcs");
 const aiArc = arcs.find((a) => a.content?.ai_generated === true);
 ok("story run: ai_generated arc persisted via the allowlisted writer", Boolean(aiArc), aiArc?.title);
 
-// --- 2. Mark (glyph) run + "use as cover icon" -------------------------------
+// --- 3. AI tab: mark (glyph) run + "use as cover icon" ------------------------
+await openTab("AI");
+ok("AI tab: panel + credits render", (await visibleHas("AI assistant")) && (await visibleHas("Credits:")));
 await clickText("button", "Design a mark");
 ok("glyph run: reaches review", await waitFor("Your mark"));
 await clickText("button", "Apply");
 ok("glyph run: applied", await waitFor("Applied to your wedding"));
 await clickText("label", "Use it as your cover icon");
 await sleep(1200);
-const content = await api("/api/w/alex-and-sam/admin/content");
+const withMark = await api("/api/w/alex-and-sam/admin/content");
 ok(
   "glyph: icon_mode=svg + sanitised mark stored",
-  content.content?.brand?.icon_mode === "svg" && Boolean(content.content?.brand?.icon_svg),
+  withMark.content?.brand?.icon_mode === "svg" && Boolean(withMark.content?.brand?.icon_svg),
 );
 await page.screenshot({ path: `${OUT}/ai-glyph-applied.png` });
 
@@ -136,7 +170,7 @@ await page.screenshot({ path: `${OUT}/ai-glyph-applied.png` });
 // is also a 100×100 svg and a bare selector match would lie.
 await page.goto("http://localhost:3000/i/solo-demo", { waitUntil: "networkidle0" });
 await sleep(800);
-const storedMark = String(content.content?.brand?.icon_svg ?? "");
+const storedMark = String(withMark.content?.brand?.icon_svg ?? "");
 ok(
   "guest cover: AI mark rendered inline",
   storedMark.length > 0 &&
@@ -150,11 +184,9 @@ ok(
 );
 await page.screenshot({ path: `${OUT}/ai-cover-mark.png` });
 
-// --- 3. Guest-list run: raw markers in, deterministic tiers out ---------------
-await page.goto("http://localhost:3000/alex-and-sam/admin", { waitUntil: "networkidle0" });
-await sleep(1500);
-await clickText('button[role="tab"]', "AI");
-await sleep(800);
+// --- 4. Guests tab: raw markers in, deterministic tiers out -------------------
+await openTab("Guests");
+ok("guests tab: AI entry point present", await visibleHas("Guest list with AI"));
 // The label button wraps a hidden <input type=file>, so it isn't a leaf —
 // match the button + its input directly rather than via visibleHas.
 ok(
@@ -167,10 +199,10 @@ ok(
 );
 ok(
   "guests run: textarea present",
-  await typeStory("Required for a story chapter", "Jordan, Riley +1, Casey and family"),
+  await typeStory("Jordan Lee, Riley Park", "Jordan, Riley +1, Casey and family"),
 );
-await clickText("button", "Extract a guest list");
-ok("guests run: reaches review", await waitFor("Guest list"));
+await clickText("button", "Read my guest list");
+ok("guests run: reaches review", await waitFor("Here's what it made"));
 ok(
   "guests run: names + owner-facing tier chips shown",
   (await visibleHas("Riley Park")) && (await visibleHas("Family")),
@@ -186,7 +218,7 @@ ok(
   riley?.invite_tier === "plus_one" && casey?.invite_tier === "plus_family",
 );
 
-// --- 4. Platform AI console ---------------------------------------------------
+// --- 5. Platform AI console ---------------------------------------------------
 await page.goto("http://localhost:3000/platform", { waitUntil: "networkidle0" });
 await sleep(1200);
 await clickText('button[role="tab"]', "AI");
@@ -196,20 +228,31 @@ ok("platform AI: breaker + usage + prompts render",
 ok("platform AI: registry lists the pipeline keys", await visibleHas("draft_arc.system"));
 await page.screenshot({ path: `${OUT}/ai-platform-console.png` });
 
-// --- 5. /create with a story: wedding first, then the wizard inline ----------
+// --- 6. /create → /setup: the wedding exists immediately, setup is optional ---
 await page.goto("http://localhost:3000/create", { waitUntil: "networkidle0" });
 await sleep(800);
 const names = `Smoke & Test ${Date.now() % 100000}`; // unique slug per run
 const nameInput = await page.$("input");
 await nameInput.type(names);
-ok("/create: story field present", await typeStory("How you met", STORY));
-await sleep(600); // let the slug availability check settle
-await clickText("button", "Create & draft with AI");
-ok("/create: wizard drafts after creating the wedding", await waitFor("Here's what it made"));
-await page.screenshot({ path: `${OUT}/ai-create-review.png` });
-await clickText("button", "Apply");
-ok("/create: applied + dashboard handoff", await waitFor("Go to your dashboard"));
-await page.screenshot({ path: `${OUT}/ai-create-applied.png` });
+ok("/create: slimmed to names + address (no story field)", !(await page.$('textarea')));
+await sleep(700); // let the slug availability check settle
+await clickText("button", "Create wedding");
+ok("/create: hands off to the setup flow", await waitFor("Key details"));
+ok("setup: all three steps offered", (await visibleHas("Your story")) && (await visibleHas("Guest list")));
+ok("setup: step 1 offers the details assistant", await visibleHas("Key details with AI"));
+await page.screenshot({ path: `${OUT}/ai-setup-step1.png` });
+
+await clickText("button", "Skip this step");
+ok("setup: step 2 offers the story assistant", await waitFor("Story chapter with AI"));
+await clickText("button", "Skip this step");
+ok("setup: step 3 offers the guests assistant", await waitFor("Guest list with AI"));
+await page.screenshot({ path: `${OUT}/ai-setup-step3.png` });
+await clickText("button", "Finish");
+ok("setup: finishing lands on the dashboard", await waitFor("Overview"));
+// Dismissed on finish, so the checklist card must be gone even though the
+// wedding is empty (nothing was applied — every step was skipped).
+ok("setup: checklist dismissed after finishing", !(await visibleHas("Finish setting up your wedding")));
+await page.screenshot({ path: `${OUT}/ai-setup-done.png` });
 
 await browser.close();
 const failed = results.filter((r) => !r.pass);

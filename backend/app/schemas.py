@@ -346,6 +346,10 @@ class AdminMe(BaseModel):
     # Upload bytes attributed to this wedding, for showing usage against
     # entitlements.max_storage_mb (counter; reconciled by the cron job).
     storage_bytes_used: int = 0
+    # 8.5a: the first-time setup flow is re-enterable from a dashboard checklist
+    # card until the owner dismisses it (settings.setup_dismissed). What's DONE
+    # is derived from the wedding itself, so only the dismissal needs storing.
+    setup_dismissed: bool = False
 
 
 # --- RSVP rollup pieces (defined before GuestAdmin, which embeds them) ------
@@ -896,6 +900,9 @@ class WeddingSettingsUpdate(BaseModel):
     # Unset = RSVPs stay open indefinitely. The invite page still renders after
     # the deadline — only the RSVP write closes.
     rsvp_deadline: str | None = None
+    # 8.5a: the owner dismissed the first-time setup checklist. Sticky, and the
+    # only piece of setup state worth storing — completion is derived.
+    setup_dismissed: bool | None = None
 
     @field_validator("phone_region")
     @classmethod
@@ -1104,7 +1111,7 @@ class AiInputRef(BaseModel):
 
 class AiJobCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["wizard", "story_arc", "glyph", "guests"]
+    kind: Literal["details", "story_arc", "glyph", "guests"]
     input_ids: list[UUID] = Field(default_factory=list, max_length=50)
     # Only the allowlisted knobs survive (`beat_count`, `tone`) — clamped server-side.
     options: dict[str, Any] = Field(default_factory=dict)

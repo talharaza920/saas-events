@@ -98,9 +98,10 @@ for **local SQLite** (`sqlite:///./dev.db`); delete it to hit **Supabase**.
   cosmetic; the guest slug alone carries the tenant) — needs the backend
   running (`NEXT_PUBLIC_API_URL` / `API_BASE`, default `http://localhost:8000`).
 - App routes (Phase 1+): `/dashboard` (post-login home, weddings + roles),
-  `/create` (wizard), `/{weddingSlug}/admin` (wedding dashboard), `/platform`
-  (super-admin console), `/invites/accept` (co-admin invites). `/admin`
-  redirects to `/dashboard`.
+  `/create` (names + slug only), `/{weddingSlug}/setup` (first-time 3-step
+  flow — every step skippable), `/{weddingSlug}/admin` (wedding dashboard),
+  `/platform` (super-admin console), `/invites/accept` (co-admin invites).
+  `/admin` redirects to `/dashboard`.
 - Auth. **Local:** set the same token in `backend/.env.local`
   (`DEV_ADMIN_TOKEN`) and `frontend/.env.local` (`NEXT_PUBLIC_DEV_ADMIN_TOKEN`).
   The bare token = bootstrap platform admin (sub `dev`, seeded as owner of the

@@ -23,9 +23,15 @@ import Switch from "@mui/material/Switch";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
-import { adminApi, type StoryArcAdmin } from "@/lib/adminApi";
+import { adminApi, type AdminMe, type StoryArcAdmin } from "@/lib/adminApi";
+import AiAssist from "@/components/ai/AiAssist";
 
 import ArcEditor from "./ArcEditor";
+
+const AI_STORY_BLURB =
+  "Tell it how you met, what happened next, and how the proposal went — paste it, " +
+  "or attach a voice note. Photos and material about the two of you help it get the " +
+  "tone right. It drafts an illustrated arc; you review every beat before it lands.";
 
 /**
  * The "Story" tab. Manages the wedding's story arcs: add / duplicate / show-hide
@@ -35,9 +41,11 @@ import ArcEditor from "./ArcEditor";
  * (targeted by arc id — never the tier).
  */
 export default function StoryPanel({
+  me,
   arcs,
   onChanged,
 }: {
+  me: AdminMe;
   arcs: StoryArcAdmin[];
   onChanged: () => void | Promise<void>;
 }) {
@@ -112,6 +120,16 @@ export default function StoryPanel({
           <Button variant="contained" onClick={addArc} disabled={busy}>
             {busy ? "Creating…" : "Create your story"}
           </Button>
+          <Box sx={{ width: "100%" }}>
+            <AiAssist
+              me={me}
+              kind="story_arc"
+              blurb={AI_STORY_BLURB}
+              placeholder="We met at a bus stop in the rain…"
+              cta="Draft my story"
+              onApplied={onChanged}
+            />
+          </Box>
         </Stack>
       </Paper>
     );
@@ -134,6 +152,15 @@ export default function StoryPanel({
       </Box>
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
+
+      <AiAssist
+        me={me}
+        kind="story_arc"
+        blurb={AI_STORY_BLURB}
+        placeholder="We met at a bus stop in the rain…"
+        cta="Draft another chapter"
+        onApplied={onChanged}
+      />
 
       {arcs.map((a, i) => (
         <Accordion

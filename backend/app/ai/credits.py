@@ -24,14 +24,14 @@ from app.models import AiJob, AiJobKind, AiJobStatus, Wedding
 # retry is free to the platform, not just to the couple (plan: an arc costs
 # roughly $0.30–$1.50 all-in).
 CREDIT_COST: dict[str, int] = {
-    AiJobKind.WIZARD: 5,
+    AiJobKind.DETAILS: 1,  # two short text calls + a Places lookup — no images
     AiJobKind.STORY_ARC: 3,
     AiJobKind.GLYPH: 1,
     AiJobKind.GUESTS: 1,
 }
 
 # Kinds that draw from the free-arc allowance.
-_ARC_KINDS = (AiJobKind.WIZARD, AiJobKind.STORY_ARC)
+_ARC_KINDS = (AiJobKind.STORY_ARC,)
 # Statuses whose hold counts against the balance (everything not refunded).
 _CHARGED_STATUSES = (
     AiJobStatus.QUEUED,
