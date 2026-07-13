@@ -1317,8 +1317,12 @@ export interface paths {
         get: operations["get_settings_ai_api_platform_settings_ai_get"];
         /**
          * Put Settings Ai
-         * @description The circuit breaker (guardrail 6): the kill switch stops new jobs and
-         *     advances immediately; the ceiling makes in-flight runs queue, never fail.
+         * @description The circuit breaker (guardrail 6) plus the platform-wide text model.
+         *
+         *     Breaker: the kill switch stops new jobs and advances immediately; the
+         *     ceiling makes in-flight runs queue, never fail. Model: overrides the env
+         *     bootstrap platform-wide (ids churn faster than deploys) — blank a field to
+         *     fall back to the deployed default. Audited, like every platform write.
          */
         put: operations["put_settings_ai_api_platform_settings_ai_put"];
         post?: never;
@@ -1812,7 +1816,13 @@ export interface components {
         };
         /**
          * AiSettingsPayload
-         * @description The platform_settings 'ai' blob (circuit breaker). Whole-blob PUT.
+         * @description The platform_settings 'ai' blob: circuit breaker + the platform-wide text
+         *     model. Whole-blob PUT.
+         *
+         *     Every text_* field is "" = "use the env bootstrap", so clearing one restores
+         *     the deployed default instead of leaving a stale pin. `fake` is not
+         *     selectable: the console's tool for stopping AI is the kill switch, which
+         *     fails closed — serving couples canned demo prose would fail *open*.
          */
         AiSettingsPayload: {
             /**
@@ -1825,6 +1835,73 @@ export interface components {
              * @default 25
              */
             daily_cost_ceiling_usd: number;
+            /**
+             * Text Provider
+             * @default
+             * @enum {string}
+             */
+            text_provider: "" | "anthropic" | "openai";
+            /**
+             * Text Model
+             * @default
+             */
+            text_model: string;
+            /**
+             * Text Effort
+             * @default
+             * @enum {string}
+             */
+            text_effort: "" | "low" | "medium" | "high";
+        };
+        /**
+         * AiSettingsView
+         * @description What the console reads back: the stored blob PLUS what is actually in
+         *     force and where it came from — a console that shows only the overrides
+         *     can't answer "which model are we on right now?", which is the question an
+         *     admin actually has.
+         */
+        AiSettingsView: {
+            /**
+             * Kill Switch
+             * @default false
+             */
+            kill_switch: boolean;
+            /**
+             * Daily Cost Ceiling Usd
+             * @default 25
+             */
+            daily_cost_ceiling_usd: number;
+            /**
+             * Text Provider
+             * @default
+             * @enum {string}
+             */
+            text_provider: "" | "anthropic" | "openai";
+            /**
+             * Text Model
+             * @default
+             */
+            text_model: string;
+            /**
+             * Text Effort
+             * @default
+             * @enum {string}
+             */
+            text_effort: "" | "low" | "medium" | "high";
+            /** Effective Provider */
+            effective_provider: string;
+            /** Effective Model */
+            effective_model: string;
+            /** Effective Effort */
+            effective_effort: string;
+            /** From Env */
+            from_env: boolean;
+            /** Keys Configured */
+            keys_configured: {
+                [key: string]: boolean;
+            };
+            /** Live Calls */
+            live_calls: boolean;
         };
         /** AiUsageDay */
         AiUsageDay: {
@@ -6327,7 +6404,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AiSettingsPayload"];
+                    "application/json": components["schemas"]["AiSettingsView"];
                 };
             };
             /** @description Validation Error */
@@ -6362,7 +6439,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AiSettingsPayload"];
+                    "application/json": components["schemas"]["AiSettingsView"];
                 };
             };
             /** @description Validation Error */

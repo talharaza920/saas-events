@@ -385,6 +385,25 @@ Config tests must pass `Settings(_env_file=None, …)` (the suite's convention).
 Ones asserting *defaults* otherwise read the developer's own `.env.local` and
 fail on their box only — which is exactly how these landed the first time.
 
+## A whole-blob PUT means every card must send the whole blob
+The platform `ai` settings row now holds the circuit breaker *and* the text-model
+choice, and the endpoint is a whole-blob PUT. The breaker card sent only its own
+two fields — so saving the breaker would have silently wiped the model override
+(and vice versa). Fixed structurally rather than by remembering: `AiConsoleTab`
+owns one `save(patch)` that merges the patch over the loaded settings, and both
+cards save through it. If you add a third card to that row, it must go through
+the same helper.
+
+## MUI `Select` opens on mousedown, so a synthetic `.click()` does nothing
+`el.click()` in `page.evaluate` dispatches only a `click` event; MUI's Select
+listens for `mousedown`, so the listbox never opened and the smoke's "changed the
+provider" step silently changed nothing — it PASSED the save and FAILED only the
+server-side assertion. Drive selects with a real `elementHandle.click()`
+(puppeteer sends the full mouse sequence). Related: the console has several cards
+each with a `Save` button, and `clickText("button", "Save")` hits the *first* on
+the page — the smoke was saving the wrong card. `clickInCard(heading, …)` scopes
+the click to one `Paper`.
+
 ## Puppeteer leaf-only text matching misses `<strong>Label:</strong> value`
 The smokes' `visibleHas` only scans elements with no element children, so a
 `<Typography><strong>Venue:</strong> Fern Hall</Typography>` is invisible to it

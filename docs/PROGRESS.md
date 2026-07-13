@@ -373,6 +373,29 @@ there).
   pointed a Claude id at OpenAI. The backend prints its AI mode on boot;
   `eval_golden.py` forces live calls (a faked green eval would be a lie).
   `tests/test_ai_config.py` (12 tests) pins both footguns.
+- [x] **Prompts AND models are console-editable — DONE 2026-07-13.** Model ids
+  churn faster than deploys, so which provider/model the pipeline uses is now a
+  platform-admin decision, not a redeploy — the same argument that already put
+  the prompt registry in the DB. `.env` keeps the *bootstrap* default (and the
+  API keys, which never leave it); the `platform_settings['ai']` blob gains
+  `text_provider` / `text_model` / `text_effort`, each `""` = "use the deployed
+  default", so clearing a field restores it rather than leaving a stale pin.
+  `ai/runtime.effective_settings()` overlays the blob onto `Settings` and is
+  applied once, at the AI router's settings dependency, so the choice reaches
+  `render_prompt(provider=…)`, the effort default and the adapter alike. Same
+  never-brick-a-tenant discipline as the prompt registry: a malformed override is
+  logged and ignored (falls back to env), a model from the wrong family is
+  refused at the console (422) rather than at the provider on a couple's next
+  run, and switching provider drops a stale `AI_TEXT_MODEL` env pin so it can't
+  ride along to the new provider. The console **cannot** re-enable AI that
+  `AI_LIVE_CALLS` switched off (a stop switch that needs the DB fails exactly
+  when needed) and `fake` is not selectable (stopping AI is the kill switch's
+  job — it fails closed; canned prose would fail open). The AI tab gains a Text
+  model card showing what is *actually* in force, whether it came from env or
+  the console, whether the environment is even making live calls, and which
+  providers have a key (booleans only — a key never crosses the wire). Prompts
+  were already fully editable (template/provider/model/effort/max-tokens,
+  versioned, activate-to-roll-back). `tests/test_ai_console_model.py` (12).
 - [ ] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
   Phase 8.5; build order a→e; 8.5a DONE):** 8.5b staged story wizard (style presets,
   editable outline incl. climax image, direct proposal edits,
@@ -390,7 +413,9 @@ there).
 
 ## Test & verification status (2026-07-12, post-8.5a)
 
-- `pytest`: **369 passed, 1 skipped.** 8.5a reshaped the AI tests around the
+- `pytest`: **393 passed, 1 skipped** (369 at 8.5a + `test_ai_config.py` 12 and
+  `test_ai_console_model.py` 12 from the config/console work of 2026-07-13).
+  8.5a reshaped the AI tests around the
   kind split: `test_ai_pipeline.py` gains `test_details_run_extracts_event_
   facts_only` (3 steps, ONE model call, no story in the proposal) and its
   happy path becomes a `story_arc` run; `test_ai_api.py` proves the two
@@ -400,7 +425,7 @@ there).
   both kinds.
 - AI smoke (`node scripts/smoke-ai.mjs`, backend started with
   **`AI_LIVE_CALLS=false`** — the one switch that also holds back the real
-  Places + Nano-Banana keys in `backend/.env`): **36/36** — the whole 8.5a
+  Places + Nano-Banana keys in `backend/.env`): **40/40** — the whole 8.5a
   funnel in a real browser with API-verified writes (details run on the Details
   tab → venue persisted; story on Story; mark on AI; guests on Guests;
   `/create` → `/setup` → three skippable steps → dismissed checklist).

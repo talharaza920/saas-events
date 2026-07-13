@@ -89,6 +89,11 @@ for **local SQLite** (`sqlite:///./dev.db`); delete it to hit **Supabase**.
   `_TRANSCRIBE` / `_PLACES` / `_TEXT` switch off one capability each. The model
   follows the provider (`AI_TEXT_PROVIDER=openai` is a complete config; ids in
   `AI_MODEL_*`), and the backend logs its AI mode on boot.
+- **Env is only the AI bootstrap.** Provider/model/effort and every prompt are
+  editable in the platform console (`/platform` → AI), stored in the DB and
+  resolved by `ai/runtime.effective_settings()` — env supplies the default and
+  the API keys. Bad config there degrades to the env default rather than
+  bricking tenants; `AI_LIVE_CALLS` is deliberately NOT console-editable.
 - Migrate (Supabase): `.venv/Scripts/python.exe -m alembic upgrade head` (RLS is
   Postgres-only and auto-skipped on SQLite, so the migration runs on both).
 - Seed / import (Supabase): `scripts/seed_wedding.py`, then

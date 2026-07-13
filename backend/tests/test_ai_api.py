@@ -461,7 +461,10 @@ def test_ai_settings_roundtrip_and_kill_switch_bites(db_session, client):
     w = _wedding_with_owner(db_session)
 
     r = client.get("/api/platform/settings/ai", headers=platform_auth())
-    assert r.json() == {"kill_switch": False, "daily_cost_ceiling_usd": 25.0}
+    breaker = r.json()
+    # The blob also carries the text-model choice now (test_ai_console_model.py
+    # covers that half); the breaker's own defaults are what this test pins.
+    assert (breaker["kill_switch"], breaker["daily_cost_ceiling_usd"]) == (False, 25.0)
 
     r = client.put(
         "/api/platform/settings/ai",

@@ -21,6 +21,10 @@ export type PlanAdmin = components["schemas"]["PlanAdmin"];
 export type WeddingPlanAdmin = components["schemas"]["WeddingPlanAdmin"];
 // --- AI console (Phase 8.4) --------------------------------------------------
 export type AiSettingsPayload = components["schemas"]["AiSettingsPayload"];
+/** What GET/PUT return: the stored blob + what's actually in force (the API
+ * resolves `effective_*` with the same function the pipeline uses, so the
+ * console can't drift from what the next run will do). */
+export type AiSettingsView = components["schemas"]["AiSettingsView"];
 export type AiPromptAdmin = components["schemas"]["AiPromptAdmin"];
 export type AiPromptSave = components["schemas"]["AiPromptSave"];
 export type AiUsageSummary = components["schemas"]["AiUsageSummary"];
@@ -96,9 +100,10 @@ export const platformApi = {
     }),
 
   // --- AI console (Phase 8.4): circuit breaker, prompt registry, spend -----
-  getAiSettings: () => req<AiSettingsPayload>("/settings/ai"),
+  getAiSettings: () => req<AiSettingsView>("/settings/ai"),
+  // Whole-blob PUT: the breaker and the text model share one row, so send both.
   putAiSettings: (s: AiSettingsPayload) =>
-    req<AiSettingsPayload>("/settings/ai", { method: "PUT", body: JSON.stringify(s) }),
+    req<AiSettingsView>("/settings/ai", { method: "PUT", body: JSON.stringify(s) }),
   aiPrompts: () => req<AiPromptAdmin[]>("/ai/prompts"),
   // Saves a NEW version (never edits in place); rollback = deactivate below.
   saveAiPrompt: (key: string, body: AiPromptSave) =>

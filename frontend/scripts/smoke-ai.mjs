@@ -81,6 +81,25 @@ async function typeStory(placeholderPart, text) {
   await el.type(text);
   return true;
 }
+/** Click inside ONE card, found by its heading. The platform console has several
+ * cards each with a "Save" button, and a bare text match hits the first on the
+ * page (which silently saved the wrong card until this existed). */
+const clickInCard = (heading, sel, text) =>
+  page.evaluate(
+    (h, s, t) => {
+      const card = [...document.querySelectorAll(".MuiPaper-root")].find((p) =>
+        [...p.querySelectorAll("h6, .MuiTypography-subtitle1")].some(
+          (el) => el.textContent.trim() === h,
+        ),
+      );
+      const el = card && [...card.querySelectorAll(s)].find((e) => e.textContent.includes(t));
+      if (el) el.click();
+      return Boolean(el);
+    },
+    heading,
+    sel,
+    text,
+  );
 /** Click a variant card by its chip label ("Version 2") — the clickable Paper
  * is the chip's ancestor, so a bare text match would hit an outer container. */
 const clickVariant = (label) =>
@@ -240,6 +259,69 @@ await sleep(1200);
 ok("platform AI: breaker + usage + prompts render",
   (await visibleHas("Circuit breaker")) && (await visibleHas("Usage — last 30 days")) && (await visibleHas("Prompt registry")));
 ok("platform AI: registry lists the pipeline keys", await visibleHas("draft_arc.system"));
+
+// The text-model card. The backend runs with AI_LIVE_CALLS=false here, so the
+// console must SAY the selection isn't being called rather than name a model
+// it isn't using.
+ok("platform AI: text-model card renders", await visibleHas("Text model"));
+ok(
+  "platform AI: says the offline model is answering (live calls off)",
+  await bodyHas("offline demo model is answering"),
+);
+
+// Change the model through the UI (MUI select → listbox option), then verify
+// server-side. This is also the regression guard for the whole-blob PUT: the
+// breaker's ceiling must survive a model save.
+// Give the breaker a NON-default ceiling first, so the whole-blob check below
+// can actually fail: if the model save wiped the breaker, this reverts to 25.
+await page.evaluate(() => {
+  const card = [...document.querySelectorAll(".MuiPaper-root")].find((p) =>
+    [...p.querySelectorAll("h6, .MuiTypography-subtitle1")].some(
+      (el) => el.textContent.trim() === "Circuit breaker",
+    ),
+  );
+  const input = card.querySelector('input[type="text"], input:not([type])');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+  setter.call(input, "7"); // React tracks value on the node — bypass its cache
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+});
+await sleep(300);
+await clickInCard("Circuit breaker", "button", "Save");
+await sleep(1200);
+
+// Now change the provider through the Text model card. A MUI Select opens on
+// MOUSEDOWN, so a synthetic el.click() does nothing — drive it with a real
+// mouse click (elementHandle.click dispatches the full sequence).
+const providerSelect = await page.evaluateHandle(() => {
+  const card = [...document.querySelectorAll(".MuiPaper-root")].find((p) =>
+    [...p.querySelectorAll("h6, .MuiTypography-subtitle1")].some(
+      (el) => el.textContent.trim() === "Text model",
+    ),
+  );
+  return card?.querySelector('div[role="combobox"]'); // Provider = the first
+});
+await providerSelect.asElement()?.click();
+await sleep(600);
+const option = await page.evaluateHandle(() =>
+  [...document.querySelectorAll('li[role="option"]')].find(
+    (o) => o.textContent.trim() === "anthropic",
+  ),
+);
+await option.asElement()?.click();
+await sleep(400);
+await clickInCard("Text model", "button", "Save");
+await sleep(1500);
+const aiCfg = await api("/api/platform/settings/ai");
+ok(
+  "platform AI: model choice saved + resolved to the provider's default",
+  aiCfg.text_provider === "anthropic" && aiCfg.effective_model === "claude-opus-4-8",
+  `${aiCfg.text_provider}/${aiCfg.effective_model}`,
+);
+ok(
+  "platform AI: saving the model did not wipe the circuit breaker",
+  aiCfg.daily_cost_ceiling_usd === 7 && aiCfg.kill_switch === false,
+  `ceiling=${aiCfg.daily_cost_ceiling_usd} kill=${aiCfg.kill_switch}`,
+);
 await page.screenshot({ path: `${OUT}/ai-platform-console.png` });
 
 // --- 6. /create → /setup: the wedding exists immediately, setup is optional ---

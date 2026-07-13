@@ -181,6 +181,7 @@ class Settings(BaseSettings):
         return {
             "anthropic": self.ai_model_anthropic,
             "openai": self.ai_model_openai,
+            "fake": "fake",  # don't report a real model id we aren't calling
         }.get(self.ai_text_provider.strip().lower(), self.ai_model_anthropic)
 
     @property

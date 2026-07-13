@@ -29,20 +29,23 @@ import {
   platformApi,
   type AiPromptAdmin,
   type AiSettingsPayload,
+  type AiSettingsView,
   type AiUsageSummary,
 } from "@/lib/platformApi";
 
 const usd = (v: number) => `$${v.toFixed(2)}`;
 
 /**
- * The AI console (AI_WIZARD_PLAN 8.2 + guardrail 10): the circuit breaker,
- * spend widgets, and the prompt registry editor. Prompts are the trust
- * boundary the plan reserves for platform admins — saves create a NEW version
- * (never in-place), rollback = deactivate (resolution falls back provider row
- * → shared row → code default, so nothing ever bricks the pipeline).
+ * The AI console (AI_WIZARD_PLAN 8.2 + guardrail 10): the circuit breaker, the
+ * text model, spend widgets, and the prompt registry editor. Prompts and models
+ * are the trust boundary the plan reserves for platform admins — prompt saves
+ * create a NEW version (never in-place), rollback = deactivate (resolution falls
+ * back provider row → shared row → code default, so nothing ever bricks the
+ * pipeline); the model choice falls back to the deployed env default the same
+ * way when a field is cleared.
  */
 export default function AiConsoleTab() {
-  const [settings, setSettings] = useState<AiSettingsPayload | null>(null);
+  const [settings, setSettings] = useState<AiSettingsView | null>(null);
   const [usage, setUsage] = useState<AiUsageSummary | null>(null);
   const [prompts, setPrompts] = useState<AiPromptAdmin[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +95,21 @@ export default function AiConsoleTab() {
     );
   }
 
+  // The breaker and the model share ONE settings row and the PUT is whole-blob,
+  // so a card that sent only its own fields would silently wipe the other's.
+  // Both cards save through here instead.
+  const save = (patch: Partial<AiSettingsPayload>) =>
+    run(() =>
+      platformApi.putAiSettings({
+        kill_switch: settings.kill_switch,
+        daily_cost_ceiling_usd: settings.daily_cost_ceiling_usd,
+        text_provider: settings.text_provider,
+        text_model: settings.text_model,
+        text_effort: settings.text_effort,
+        ...patch,
+      }),
+    );
+
   return (
     <Stack spacing={3}>
       {error && (
@@ -99,7 +117,8 @@ export default function AiConsoleTab() {
           {error}
         </Alert>
       )}
-      <BreakerCard settings={settings} busy={busy} run={run} />
+      <BreakerCard settings={settings} busy={busy} save={save} />
+      <ModelCard settings={settings} busy={busy} save={save} />
       <UsageCard usage={usage} />
       <PromptsCard prompts={prompts} busy={busy} run={run} />
     </Stack>
@@ -107,9 +126,118 @@ export default function AiConsoleTab() {
 }
 
 type Run = (fn: () => Promise<unknown>) => Promise<void>;
+type Save = (patch: Partial<AiSettingsPayload>) => Promise<void>;
+
+// --- Text model --------------------------------------------------------------
+function ModelCard({
+  settings,
+  busy,
+  save,
+}: {
+  settings: AiSettingsView;
+  busy: boolean;
+  save: Save;
+}) {
+  const [provider, setProvider] = useState(settings.text_provider ?? "");
+  const [model, setModel] = useState(settings.text_model ?? "");
+  const [effort, setEffort] = useState(settings.text_effort ?? "");
+  const missingKey =
+    provider !== "" && settings.keys_configured?.[provider] === false;
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5 }}>
+      <Stack spacing={2}>
+        <Typography variant="subtitle1">Text model</Typography>
+        {!settings.live_calls && (
+          <Alert severity="info">
+            This environment has live AI calls switched off, so the offline demo model is
+            answering every run — whatever is selected below. Nothing here is being called.
+          </Alert>
+        )}
+        <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }} useFlexGap>
+          <Chip
+            color={settings.live_calls ? "primary" : "default"}
+            variant="outlined"
+            label={`${settings.live_calls ? "Live" : "Selected"}: ${settings.effective_provider} / ${settings.effective_model} · ${settings.effective_effort}`}
+          />
+          <Chip
+            size="small"
+            variant="outlined"
+            label={settings.from_env ? "from deployed default" : "overridden here"}
+          />
+        </Stack>
+        <Typography variant="body2" color="text.secondary">
+          Overrides the deployed default platform-wide, for every wedding — model ids change
+          faster than deploys. Leave a field blank to fall back to what&apos;s deployed. The
+          model must match the provider&apos;s family, and a value this app can&apos;t use is
+          ignored rather than allowed to break every run.
+        </Typography>
+        {missingKey && (
+          <Alert severity="warning">
+            No API key is configured for <strong>{provider}</strong> in this environment — runs
+            would fail. Add the key before switching.
+          </Alert>
+        )}
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+          <TextField
+            select
+            label="Provider"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as typeof provider)}
+            sx={{ minWidth: 180 }}
+            helperText="Blank = deployed default"
+          >
+            <MenuItem value="">deployed default</MenuItem>
+            <MenuItem value="anthropic">anthropic</MenuItem>
+            <MenuItem value="openai">openai</MenuItem>
+          </TextField>
+          <TextField
+            label="Model"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            sx={{ minWidth: 240 }}
+            helperText="Blank = that provider's default"
+          />
+          <TextField
+            select
+            label="Effort"
+            value={effort}
+            onChange={(e) => setEffort(e.target.value as typeof effort)}
+            sx={{ minWidth: 140 }}
+          >
+            <MenuItem value="">deployed default</MenuItem>
+            <MenuItem value="low">low</MenuItem>
+            <MenuItem value="medium">medium</MenuItem>
+            <MenuItem value="high">high</MenuItem>
+          </TextField>
+        </Stack>
+        <Typography variant="caption" color="text.secondary">
+          To stop AI entirely, use the kill switch — it fails closed. (Whether this deployment
+          may call a provider at all is an environment setting, deliberately not editable here:
+          a stop switch that needs the database is a stop switch that fails when you need it.)
+        </Typography>
+        <Box>
+          <Button
+            variant="contained"
+            disabled={busy}
+            onClick={() =>
+              save({
+                text_provider: provider as AiSettingsPayload["text_provider"],
+                text_model: model.trim(),
+                text_effort: effort as AiSettingsPayload["text_effort"],
+              })
+            }
+          >
+            Save
+          </Button>
+        </Box>
+      </Stack>
+    </Paper>
+  );
+}
 
 // --- Circuit breaker ---------------------------------------------------------
-function BreakerCard({ settings, busy, run }: { settings: AiSettingsPayload; busy: boolean; run: Run }) {
+function BreakerCard({ settings, busy, save }: { settings: AiSettingsView; busy: boolean; save: Save }) {
   const [kill, setKill] = useState(Boolean(settings.kill_switch));
   const [ceiling, setCeiling] = useState(String(settings.daily_cost_ceiling_usd ?? 0));
   const ceilingNum = Number.parseFloat(ceiling);
@@ -145,11 +273,7 @@ function BreakerCard({ settings, busy, run }: { settings: AiSettingsPayload; bus
           <Button
             variant="contained"
             disabled={busy || !valid}
-            onClick={() =>
-              run(() =>
-                platformApi.putAiSettings({ kill_switch: kill, daily_cost_ceiling_usd: ceilingNum }),
-              )
-            }
+            onClick={() => save({ kill_switch: kill, daily_cost_ceiling_usd: ceilingNum })}
           >
             Save
           </Button>

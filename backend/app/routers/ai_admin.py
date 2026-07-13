@@ -31,6 +31,7 @@ from app.ai.credits import arc_generations_used, credits_remaining
 from app.ai.jobs import advance_job, cancel_job, create_job
 from app.ai.media import GeminiMedia, get_media_model
 from app.ai.providers import get_text_model
+from app.ai.runtime import effective_settings
 from app.ai.types import TextModel
 from app.ai.variants import regenerate_artifact, select_variant
 from app.authz import WeddingCtx, require_wedding
@@ -63,14 +64,28 @@ editor_ctx = require_wedding("admin", edit=True)
 MAX_UNCLAIMED_INPUTS = 50
 
 
-def get_job_text_model(settings: Settings = Depends(get_settings)) -> TextModel:
+def get_ai_settings_effective(
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+) -> Settings:
+    """Config for every AI route: env, with the platform console's text-model
+    choice applied on top (ai/runtime.py).
+
+    Every route in this router takes THIS instead of `get_settings`, so the
+    console's choice reaches `render_prompt(provider=…)`, the effort default and
+    the adapter alike — one seam, not a parameter threaded through the pipeline.
+    """
+    return effective_settings(db, settings)
+
+
+def get_job_text_model(settings: Settings = Depends(get_ai_settings_effective)) -> TextModel:
     """The provider seam as a dependency — tests override this to inject a
     scripted FakeTextModel without touching config."""
     return get_text_model(settings)
 
 
 def get_job_media_model(settings: Settings = Depends(get_settings)) -> GeminiMedia:
-    """The Gemini media seam as a dependency, same override story."""
+    """The Gemini media seam as a dependency, same override story. NOT overlaid:
+    the console picks the TEXT model; Gemini is the hard-coded media seam."""
     return get_media_model(settings)
 
 
@@ -148,7 +163,7 @@ async def upload_ai_input(
     file: UploadFile = File(...),
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_ai_settings_effective),
 ) -> AiInputRef:
     """One media submission (voice note / photo / PDF), stored under the
     transient ai-inputs namespace (unmetered, reaped with the job or the
@@ -190,7 +205,7 @@ def create_ai_job(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=64),
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_ai_settings_effective),
 ) -> AiJobAdmin:
     job = create_job(
         db, settings, ctx.wedding,
@@ -234,7 +249,7 @@ def advance_ai_job(
     payload: AiAdvanceRequest | None = None,
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_ai_settings_effective),
     text_model: TextModel = Depends(get_job_text_model),
     media_model: GeminiMedia = Depends(get_job_media_model),
 ) -> AiJobAdmin:
@@ -254,7 +269,7 @@ def regenerate_ai_artifact(
     payload: AiRegenerateRequest,
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_ai_settings_effective),
     text_model: TextModel = Depends(get_job_text_model),
     media_model: GeminiMedia = Depends(get_job_media_model),
 ) -> AiVariantAdmin:
@@ -287,7 +302,7 @@ def apply_ai_job(
     payload: AiApplyRequest | None = None,
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_ai_settings_effective),
 ) -> AiApplyResult:
     job = _get_job(db, ctx.wedding, job_id)
     result = apply_proposal(
@@ -303,7 +318,7 @@ def cancel_ai_job(
     job_id: UUID,
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_ai_settings_effective),
 ) -> AiJobAdmin:
     job = _get_job(db, ctx.wedding, job_id)
     return _job_admin(db, cancel_job(db, settings, job))

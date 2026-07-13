@@ -12,7 +12,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # --- Free-form JSON bounds ---------------------------------------------------
@@ -1189,11 +1189,54 @@ class AiCreditsInfo(BaseModel):
 
 
 class AiSettingsPayload(BaseModel):
-    """The platform_settings 'ai' blob (circuit breaker). Whole-blob PUT."""
+    """The platform_settings 'ai' blob: circuit breaker + the platform-wide text
+    model. Whole-blob PUT.
+
+    Every text_* field is "" = "use the env bootstrap", so clearing one restores
+    the deployed default instead of leaving a stale pin. `fake` is not
+    selectable: the console's tool for stopping AI is the kill switch, which
+    fails closed — serving couples canned demo prose would fail *open*.
+    """
 
     model_config = ConfigDict(extra="forbid")
     kill_switch: bool = False
     daily_cost_ceiling_usd: float = Field(default=25.0, ge=0)  # 0 disables the ceiling
+    text_provider: Literal["", "anthropic", "openai"] = ""
+    text_model: str = Field(default="", max_length=100)
+    text_effort: Literal["", "low", "medium", "high"] = ""
+
+    @model_validator(mode="after")
+    def _model_must_match_provider(self) -> "AiSettingsPayload":
+        """Reject the pairing the type system can't: an id from the wrong family.
+        Cheap to check here, and the alternative is every wedding's next run
+        failing at the provider with a 404."""
+        model = self.text_model.strip().lower()
+        if not model:
+            return self
+        provider = self.text_provider or "anthropic"  # the env default's family
+        is_claude = model.startswith("claude")
+        if provider == "openai" and is_claude:
+            raise ValueError(f"{self.text_model!r} is an Anthropic model — pick an OpenAI one")
+        if provider == "anthropic" and not is_claude:
+            raise ValueError(f"{self.text_model!r} is not an Anthropic model id")
+        return self
+
+
+class AiSettingsView(AiSettingsPayload):
+    """What the console reads back: the stored blob PLUS what is actually in
+    force and where it came from — a console that shows only the overrides
+    can't answer "which model are we on right now?", which is the question an
+    admin actually has."""
+
+    effective_provider: str
+    effective_model: str
+    effective_effort: str
+    from_env: bool  # true = no console override; the deployed default is in force
+    keys_configured: dict[str, bool]  # provider -> has an API key (never the key)
+    # False = AI_LIVE_CALLS is off in this environment, so NOTHING below is
+    # actually being called (the offline fake model is). The console must say so
+    # rather than name a model it isn't using.
+    live_calls: bool
 
 
 class AiPromptAdmin(BaseModel):

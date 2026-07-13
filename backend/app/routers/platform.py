@@ -26,6 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.jobs import get_ai_settings, set_ai_settings
+from app.ai.runtime import effective_settings
 from app.ai.ledger import cost_usd_today
 from app.ai.prompts import CODE_DEFAULTS, resolve_spec
 from app.approval import (
@@ -64,6 +65,7 @@ from app.schemas import (
     AiPromptAdmin,
     AiPromptSave,
     AiSettingsPayload,
+    AiSettingsView,
     AiUsageDay,
     AiUsageSummary,
     AiUsageTopWedding,
@@ -637,27 +639,57 @@ def assign_plan(
 
 
 # --- AI console (Phase 8.4) ------------------------------------------------------
-@router.get("/settings/ai", response_model=AiSettingsPayload)
-def get_settings_ai(db: Session = Depends(get_db)) -> AiSettingsPayload:
-    s = get_ai_settings(db)
-    return AiSettingsPayload(
-        kill_switch=bool(s.get("kill_switch")),
-        daily_cost_ceiling_usd=s.get("daily_cost_ceiling_usd") or 0,
+def _ai_settings_view(db: Session, settings: Settings, stored: dict) -> AiSettingsView:
+    """The stored blob + what is actually in force. `effective_*` is resolved by
+    the very same function the pipeline uses, so the console cannot drift from
+    what the next run will do."""
+    live = effective_settings(db, settings)
+    return AiSettingsView(
+        kill_switch=bool(stored.get("kill_switch")),
+        daily_cost_ceiling_usd=stored.get("daily_cost_ceiling_usd") or 0,
+        text_provider=stored.get("text_provider") or "",
+        text_model=stored.get("text_model") or "",
+        text_effort=stored.get("text_effort") or "",
+        effective_provider=live.ai_text_provider,
+        effective_model=live.text_model,
+        effective_effort=live.ai_text_effort,
+        from_env=not any(
+            stored.get(k) for k in ("text_provider", "text_model", "text_effort")
+        ),
+        # Booleans only — an API key never crosses this wire.
+        keys_configured={
+            "anthropic": bool(settings.anthropic_api_key),
+            "openai": bool(settings.openai_api_key),
+        },
+        live_calls=live.ai_text_live,
     )
 
 
-@router.put("/settings/ai", response_model=AiSettingsPayload)
+@router.get("/settings/ai", response_model=AiSettingsView)
+def get_settings_ai(
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+) -> AiSettingsView:
+    return _ai_settings_view(db, settings, get_ai_settings(db))
+
+
+@router.put("/settings/ai", response_model=AiSettingsView)
 def put_settings_ai(
     payload: AiSettingsPayload,
     user: AuthedUser = Depends(require_platform_admin),
     db: Session = Depends(get_db),
-) -> AiSettingsPayload:
-    """The circuit breaker (guardrail 6): the kill switch stops new jobs and
-    advances immediately; the ceiling makes in-flight runs queue, never fail."""
+    settings: Settings = Depends(get_settings),
+) -> AiSettingsView:
+    """The circuit breaker (guardrail 6) plus the platform-wide text model.
+
+    Breaker: the kill switch stops new jobs and advances immediately; the
+    ceiling makes in-flight runs queue, never fail. Model: overrides the env
+    bootstrap platform-wide (ids churn faster than deploys) — blank a field to
+    fall back to the deployed default. Audited, like every platform write.
+    """
     merged = set_ai_settings(db, payload.model_dump())
     record(db, "platform.settings.ai", user=user, detail=merged)
     db.commit()
-    return AiSettingsPayload(**merged)
+    return _ai_settings_view(db, settings, merged)
 
 
 def _prompt_admin(row: AiPrompt, *, effective: bool) -> AiPromptAdmin:

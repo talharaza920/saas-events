@@ -87,7 +87,17 @@ ORPHAN_INPUT_TTL = timedelta(hours=24)
 # Platform circuit breaker, editable from the console (Phase 8.4). Checked
 # before any provider call — same read-with-defaults pattern as approval.py.
 AI_SETTINGS_KEY = "ai"
-DEFAULT_AI_SETTINGS = {"kill_switch": False, "daily_cost_ceiling_usd": 25.0}
+# The circuit breaker, plus the platform-wide text-model choice. Every text_*
+# value is "" by default, meaning "use the env bootstrap" — the console can
+# override the model without a redeploy (ids churn), and clearing a field puts
+# it back rather than leaving a stale pin. See ai/runtime.effective_settings.
+DEFAULT_AI_SETTINGS = {
+    "kill_switch": False,
+    "daily_cost_ceiling_usd": 25.0,
+    "text_provider": "",
+    "text_model": "",
+    "text_effort": "",
+}
 
 
 def get_ai_settings(db: Session) -> dict:
