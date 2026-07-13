@@ -6,6 +6,7 @@
   POST …/jobs                 {kind, input_ids, options}  [Idempotency-Key]
   GET  …/jobs, …/jobs/{id}    status, step, proposal, variants
   POST …/jobs/{id}/advance    drives exactly ONE pipeline step; idempotent per step
+  POST …/jobs/{id}/answers    {answers} → clears up an ambiguous guest list; ONE re-extract
   PATCH …/jobs/{id}/proposal  {story_arc?, style_preset?, style_note?} → free human edits
   POST …/jobs/{id}/illustrate {targets?} → renders panels; 1 credit each
   POST …/jobs/{id}/regenerate {artifact, steer?} → a new variant, old ones kept
@@ -29,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.apply import apply_proposal
+from app.ai.askback import answer_questions
 from app.ai.credits import arc_generations_used, credits_remaining
 from app.ai.edit import edit_proposal
 from app.ai.images import illustrate
@@ -47,6 +49,7 @@ from app.models import AiInput, AiJob, AiVariant, Wedding
 from app.storage import UploadError, store_ai_input, validate_ai_media
 from app.schemas import (
     AiAdvanceRequest,
+    AiAnswersRequest,
     AiApplyRequest,
     AiApplyResult,
     AiCreditsInfo,
@@ -173,21 +176,27 @@ async def upload_ai_input(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_ai_settings_effective),
 ) -> AiInputRef:
-    """One media submission (voice note / photo / PDF), stored under the
-    transient ai-inputs namespace (unmetered, reaped with the job or the
-    orphan sweep — never rendered on a page). Refused with a clear message
-    when the Gemini seam isn't configured: better here than a run that fails
-    at its very first step."""
+    """One media submission (voice note / photo / PDF / spreadsheet), stored
+    under the transient ai-inputs namespace (unmetered, reaped with the job or
+    the orphan sweep — never rendered on a page).
+
+    The Gemini kinds are refused with a clear message when that seam isn't
+    configured — better here than a run that fails at its very first step. A
+    SHEET is not one of them: it's parsed in code (app/ai/sheets.py), so it
+    stays available with every provider switched off."""
     require_feature(db, ctx.wedding, "ai_enabled")
     _check_unclaimed_cap(db, ctx.wedding)
-    if not settings.ai_transcribe_enabled:
+    data = await file.read()
+    try:
+        kind, ext = validate_ai_media(file.content_type, len(data))
+    except UploadError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if kind != "sheet" and not settings.ai_transcribe_enabled:
         raise HTTPException(
             status_code=422,
             detail="Voice notes, photos and PDFs aren't available yet — paste text instead",
         )
-    data = await file.read()
     try:
-        kind, ext = validate_ai_media(file.content_type, len(data))
         url = store_ai_input(settings, ctx.wedding.slug, data, ext,
                              file.content_type or "application/octet-stream")
     except UploadError as exc:
@@ -341,6 +350,28 @@ def illustrate_ai_job(
         db, settings, job,
         targets=payload.targets if payload else None,
         media_model=media_model,
+        user=ctx.user,
+    )
+    return _job_admin(db, job)
+
+
+@router.post("/jobs/{job_id}/answers", response_model=AiJobAdmin)
+def answer_ai_questions(
+    job_id: UUID,
+    payload: AiAnswersRequest,
+    ctx: WeddingCtx = Depends(editor_ctx),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_ai_settings_effective),
+    text_model: TextModel = Depends(get_job_text_model),
+) -> AiJobAdmin:
+    """Answer a guest-list run's open questions and re-extract ONCE (8.5c).
+    Free — we're asking because our extraction was uncertain, and the two-round
+    cap is what bounds the spend."""
+    job = _get_job(db, ctx.wedding, job_id)
+    job = answer_questions(
+        db, settings, job,
+        answers=[a.model_dump() for a in payload.answers],
+        text_model=text_model,
         user=ctx.user,
     )
     return _job_admin(db, job)

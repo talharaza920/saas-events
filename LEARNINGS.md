@@ -435,3 +435,31 @@ a `useEffect` renders the stale draft once first and trips the
 `react-hooks/set-state-in-effect` lint. The React-sanctioned pattern is to
 compare a `baseline` state to the incoming prop *during render* and call the
 setters there — no extra render, no lint suppression.
+
+## An "I don't know" that still ships a guess is not an ask-back
+8.5c's guest extraction asks about lines it can't read ("Sam's parents"). The
+first cut still passed those lines to the deterministic parser — so the proposal
+carried a question about the Okonjo family *and* a solo guest named "the Okonjo
+family". The question is the mechanism; holding the line back is the point. A
+line with an open question is excluded from the drafted guests and listed as
+unresolved, so a couple who never answers gets the guests we were sure of and
+nobody we invented. Whenever a model is allowed to abstain, check what the rest
+of the pipeline does with the thing it abstained on.
+
+## The `+1` marker attaches to a row, not to a name
+`guest_import.build_guests` collapses companion rows into the *primary row above
+them*: a list of `["Riley Park +1"]` with no `["Riley Park"]` line yields zero
+guests and one unresolved companion — the guest vanishes. So the extraction
+prompt's "return every entry exactly as written" is load-bearing, not stylistic:
+the model must return both the primary and its marker rows. Worth knowing before
+writing a fixture (this cost a confused test debug), and worth keeping in mind if
+the prompt is ever "tidied up" to return one line per party.
+
+## Route by capability, not by upload type
+A spreadsheet is an AI *input* kind but needs no provider: `app/ai/sheets.py`
+flattens it in code. That means it must sit on the far side of the
+`ai_transcribe_enabled` gate — the upload endpoint checks the gate only for the
+Gemini kinds, and `transcribe_input` returns `usage=None` for a sheet. Result: a
+couple can hand the assistant a spreadsheet with the whole AI seam switched off,
+and the browser smoke exercises the path for free. The general rule: gate on
+"does this need the provider?", never on "did this arrive as a file?".

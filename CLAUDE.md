@@ -91,6 +91,10 @@ for **local SQLite** (`sqlite:///./dev.db`); delete it to hit **Supabase**.
   `AI_MODEL_*`), and the backend logs its AI mode on boot. `AI_FAKE_IMAGES=true`
   (dev only, refused in production) paints placeholder art so the story wizard's
   illustrate stage runs offline — the AI smoke needs it.
+- **Not everything on the AI tab is an AI call.** A guest spreadsheet is read by
+  a parser (`app/ai/sheets.py` / the deterministic `/import`) — no provider, no
+  credits, works with `AI_LIVE_CALLS=false`. Gate features on "does this need the
+  provider?", never on "did this arrive as a file?".
 - **Env is only the AI bootstrap.** Provider/model/effort and every prompt are
   editable in the platform console (`/platform` → AI), stored in the DB and
   resolved by `ai/runtime.effective_settings()` — env supplies the default and

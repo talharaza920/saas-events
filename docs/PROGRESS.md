@@ -8,9 +8,11 @@ _Last updated: 2026-07-13 (Phases 1–5 built & tested locally; review P0, P1
 AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
 deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`): 8.0–8.4b + 8.1c + the
 8.5a funnel + the AI-config/console rework + **8.5b, the staged story wizard**
-(text first, free hand edits, images one deliberate click at a time) are all
-done locally. Next: 8.5c guests ask-back, then 8.5d likeness, 8.5e theme
-presets. Remaining: Anthropic key, the approval-queue decision, infra.)_
+(text first, free hand edits, images one deliberate click at a time) + **8.5c,
+guests** (one intake: a spreadsheet read by a parser for free, a messy list read
+by the model, which asks about lines it can't read instead of guessing) are all
+done locally. Next: 8.5d likeness, then 8.5e theme presets. Remaining: Anthropic
+key, the approval-queue decision, infra.)_
 
 ## Where things stand (one paragraph)
 
@@ -426,9 +428,38 @@ there).
   offers the paid buttons when `AiCreditsInfo.images_available` says the server
   can actually illustrate. Tests: `tests/test_ai_staged_story.py` (13) + the
   rewritten image block of `test_ai_media_guests.py`.
+- [x] **8.5c Guests: spreadsheet routing + ask-back — DONE (local) 2026-07-13.**
+  The Guests tab now has ONE way in (`components/admin/GuestsIntake.tsx`):
+  paste it, photograph it, or drop the spreadsheet, and the routing is done FOR
+  the couple. A real sheet goes to the **existing deterministic importer** (a
+  parser — no model, no credits; `SheetImport.tsx` runs the same server dry-run →
+  preview → commit, and the `Id` column still makes an edited export an update);
+  everything else goes to the `guests` run. `AiAssist` gained `routeFiles`, a
+  last chance for the parent to claim a submission *before* a job exists — the
+  cheapest run is the one that never happens. If the sheet turns out not to be
+  our layout, the importer offers the assistant as a fallback rather than an
+  error. A sheet handed to the AI path still reaches **no provider**:
+  `app/ai/sheets.py` flattens it in code (bounded rows/cols/cells), so the sheet
+  kind sits on the far side of the transcribe gate and works with
+  `AI_LIVE_CALLS=false`. **Ask-back:** `GuestLines` gained a bounded `questions`
+  list, and an ambiguous line ("Sam's parents") now comes back as a QUESTION
+  instead of a guess — and is **held out of the drafted guests**, because a
+  proposal that asks about the Okonjo family *and* invents a solo guest of that
+  name has answered its own question wrongly. The job parks with the partial
+  list + the questions (`components/ai/GuestQuestions.tsx`); the couple answers
+  inline; `POST …/ai/jobs/{id}/answers` (`app/ai/askback.py`) appends the
+  answers as an ordinary `AiInput` (swept with the job) inside
+  `<clarifications>` tags and runs **ONE** final re-extract — `final=True`, so
+  it cannot ask again (hard cap: 2 rounds; a workflow, not a chat). Answering is
+  **free** (we're asking because we were unsure; the ledger still records the
+  call), unanswered questions leave their line in `guests_unresolved` rather
+  than invented, and a failed re-read destroys nothing — round one's list is
+  still sitting there, still applicable. Tiers remain 100% deterministic: no
+  answer, however phrased ("give them all a plus one!"), can reach an
+  `invite_tier` — they come from the markers in the returned lines, in code.
+  Tests: `tests/test_ai_guests_askback.py` (13).
 - [ ] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
-  Phase 8.5; build order a→e; 8.5a + 8.5b DONE):** 8.5c guests
-  ask-back loop + spreadsheet routing · 8.5d likeness behind
+  Phase 8.5; build order a→e; 8.5a + 8.5b + 8.5c DONE):** 8.5d likeness behind
   `ai_likeness_enabled` (generic consent now, legal framing DEFERRED — open
   risk) · 8.5e ~10 theme presets on the Theme tab, platform-owned: a console
   Themes editor lets platform admins add/edit/reorder/disable/delete presets
@@ -439,7 +470,25 @@ there).
   provider); decision on forcing AI-drafted weddings through the approval
   queue; likeness legal framing before public launch.
 
-## Test & verification status (2026-07-13, post-8.5b)
+## Test & verification status (2026-07-13, post-8.5c)
+
+- `pytest`: **419 passed, 1 skipped** (406 + `test_ai_guests_askback.py` 13).
+  The new suite pins what 8.5c promises: a spreadsheet is read by a parser and
+  reaches no provider even with the AI seam off (and the upload endpoint takes
+  it while refusing a voice note in the same configuration); an ambiguous line
+  parks as a question BESIDE the partial list and is not drafted as a guest;
+  answering re-extracts exactly once, free, with the answers riding the user
+  turn as data; an unanswered question leaves its line unresolved; a failed
+  re-read keeps round one's list intact; and no answer can reach an
+  `invite_tier`.
+- AI smoke: **53/53** (46 + 7 for 8.5c), backend on
+  `AI_LIVE_CALLS=false AI_FAKE_IMAGES=true` — the sheet route imports a CSV with
+  the credit balance API-verified unchanged, and the messy paste asks about the
+  line it can't read, takes an answer, and applies with tiers from the markers.
+- E2E smoke: **21/21**, unchanged by 8.5c. `tsc`/`eslint`/`next build` clean;
+  API types regenerated.
+
+## Test & verification status (2026-07-13, post-8.5b — kept for history)
 
 - `pytest`: **406 passed, 1 skipped** (393 at 8.5a + `test_ai_staged_story.py`
   13). The new suite pins what 8.5b actually promises: a story run parks

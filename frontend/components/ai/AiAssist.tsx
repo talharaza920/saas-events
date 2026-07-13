@@ -53,6 +53,9 @@ export default function AiAssist({
   placeholder,
   cta,
   requiresInput = true,
+  accept,
+  initialFiles,
+  routeFiles,
   onApplied,
 }: {
   me: AdminMe;
@@ -63,6 +66,17 @@ export default function AiAssist({
   cta: string;
   /** False for `glyph`, which can draft from nothing at all. */
   requiresInput?: boolean;
+  /** Extra file types this entry point takes (8.5c: the Guests tab takes sheets). */
+  accept?: string;
+  /** Files already attached on mount — a `routeFiles` parent handing one back. */
+  initialFiles?: File[];
+  /**
+   * A last chance to handle the submission WITHOUT the AI (8.5c). The Guests tab
+   * uses it to send a real spreadsheet to the deterministic importer: a table is
+   * already structured, so reading it needs a parser, not a model. Return true
+   * to claim the submission — no job is created and no credit is spent.
+   */
+  routeFiles?: (files: File[], text: string) => boolean;
   /** Fired after a successful apply so the surrounding tab can refresh. */
   onApplied?: () => Promise<void> | void;
 }) {
@@ -70,7 +84,7 @@ export default function AiAssist({
   const [job, setJob] = useState<AiJobAdmin | null>(null);
   const [otherKind, setOtherKind] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(initialFiles ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [styles, setStyles] = useState<AiStyleOption[]>([]);
@@ -119,6 +133,13 @@ export default function AiAssist({
   };
 
   const start = async () => {
+    // The cheapest run is the one that never happens: give the parent first
+    // refusal (a spreadsheet doesn't need a model) before anything is charged.
+    if (routeFiles?.(files, text.trim())) {
+      setFiles([]);
+      setText("");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -230,7 +251,7 @@ export default function AiAssist({
                   hidden
                   multiple
                   type="file"
-                  accept={MEDIA_ACCEPT}
+                  accept={accept ? `${MEDIA_ACCEPT},${accept}` : MEDIA_ACCEPT}
                   onChange={(e) => {
                     addFiles(e.target.files);
                     e.target.value = "";

@@ -60,13 +60,13 @@ import {
   type StoryArcAdmin,
 } from "@/lib/adminApi";
 import { DEFAULT_INVITE_MESSAGE } from "@/lib/content";
-import AiAssist from "@/components/ai/AiAssist";
 
 import { isAnswered } from "./AnswerField";
 import { applyMultiSort, ColumnSettings, SortBar, useColumnPrefs, useMultiSort } from "./columnPrefs";
 import CompanionFormDialog from "./CompanionFormDialog";
 import GuestFormDialog, { personIncluded, type GuestFormValues } from "./GuestFormDialog";
-import ImportPanel from "./ImportPanel";
+import GuestsIntake from "./GuestsIntake";
+import SheetPanel from "./SheetPanel";
 
 /** Context for substituting the invite-message template (couple + venue/date/time). */
 type MessageContext = {
@@ -623,23 +623,12 @@ export default function GuestsPanel({
         </Stack>
       </Box>
 
-      <ImportPanel onChanged={onChanged} />
+      {/* 8.5c: ONE way in for a list, whatever shape it's in. GuestsIntake sends
+          a real spreadsheet to the deterministic importer (a parser — no model,
+          no credits) and everything else to the assistant. */}
+      <GuestsIntake me={me} onChanged={onChanged} />
 
-      {/* 8.5a: the AI entry point sits beside the deterministic import — a real
-          spreadsheet should go through ImportPanel (no model, no cost); this is
-          for the messy paste that isn't one. */}
-      <AiAssist
-        me={me}
-        kind="guests"
-        blurb={
-          "Got a list that isn't a spreadsheet — a WhatsApp thread, a note, a photo of a page? " +
-          "Paste or attach it and it pulls out the names. Who gets a +1 is worked out from your " +
-          "own markers, and every row is yours to check before it's added."
-        }
-        placeholder="Jordan Lee, Riley Park +1, Casey Nguyen + 2 kids…"
-        cta="Read my guest list"
-        onApplied={onChanged}
-      />
+      <SheetPanel />
 
       {guests.length > 0 && (
         <GuestFilterBar

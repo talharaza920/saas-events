@@ -26,6 +26,7 @@ import {
 
 import { SteerBox, VariantStrip } from "./AiVariants";
 import GlyphMark from "./GlyphMark";
+import GuestQuestions from "./GuestQuestions";
 import StoryDraft from "./StoryDraft";
 
 // Loose views over the proposal JSON (assembled in app/ai/jobs.py). Every
@@ -335,6 +336,11 @@ export default function AiReviewPanel({
         </Paper>
       )}
 
+      {/* 8.5c: the ask-back sits ABOVE the list, and outside the section
+          checkboxes — it isn't something to apply, it's something to answer.
+          It shows even when nothing legible was found (all questions, no rows). */}
+      <GuestQuestions job={job} onJob={onJob} disabled={busy !== null} />
+
       {sections.includes("guests") && (
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Stack spacing={1.5}>
@@ -364,9 +370,9 @@ export default function AiReviewPanel({
             </Stack>
             {guestsUnresolved.length > 0 && (
               <Alert severity="info">
-                Couldn&apos;t match {guestsUnresolved.length === 1 ? "this entry" : "these entries"}{" "}
-                to a listed guest, so {guestsUnresolved.length === 1 ? "it was" : "they were"}{" "}
-                skipped: {guestsUnresolved.join(", ")}. Add them from the Guests tab if needed.
+                Left {guestsUnresolved.length === 1 ? "this entry" : "these entries"} out rather
+                than guess who {guestsUnresolved.length === 1 ? "it means" : "they mean"}:{" "}
+                {guestsUnresolved.join(", ")}. Add them from the Guests tab if you need them.
               </Alert>
             )}
           </Stack>

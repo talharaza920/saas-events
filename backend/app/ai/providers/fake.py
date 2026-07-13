@@ -136,8 +136,32 @@ _DEMO_GUEST_LINES = {
         "Casey Nguyen +1",
         "Kid (Casey Nguyen)",
         "Sasha Chen",
-    ]
+        "the Okonjo family",  # deliberately ambiguous → the ask-back (8.5c)
+    ],
+    "questions": [
+        {
+            "about_line": "the Okonjo family",
+            "question": "Who's coming from the Okonjo family, and how should I list them?",
+        }
+    ],
 }
+
+# Round two: the couple's reply arrived inside <clarifications>, so the entry is
+# resolved and NOTHING further is asked (the second round is `final` — the real
+# pipeline drops any questions it returns anyway; this just keeps the demo honest).
+_DEMO_GUEST_LINES_ANSWERED = {
+    "lines": [
+        *(line for line in _DEMO_GUEST_LINES["lines"] if line != "the Okonjo family"),
+        "Ada Okonjo",
+        "Ada Okonjo +1",
+    ],
+    "questions": [],
+}
+
+
+def _demo_guest_lines(prompt, _schema) -> dict:
+    answered = "<clarifications>" in (prompt.user or "")
+    return copy.deepcopy(_DEMO_GUEST_LINES_ANSWERED if answered else _DEMO_GUEST_LINES)
 
 _DEMO_GROUND = {
     "unsupported": [
@@ -160,7 +184,7 @@ _GLYPH_CYCLE = itertools.cycle(_DEMO_GLYPHS)
 def demo_responses() -> dict[str, CannedResponse]:
     return {
         "extract.system": _DEMO_EXTRACT,
-        "extract_guests.system": _DEMO_GUEST_LINES,
+        "extract_guests.system": _demo_guest_lines,
         "draft_arc.system": lambda _p, _s: copy.deepcopy(next(_ARC_CYCLE)),
         "ground.system": _DEMO_GROUND,
         "glyph.system": lambda _p, _s: copy.deepcopy(next(_GLYPH_CYCLE)),

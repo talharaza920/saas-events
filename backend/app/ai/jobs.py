@@ -298,7 +298,7 @@ def advance_job(
 
     job.step += 1
     if job.step >= job.steps_total:
-        job.proposal = _build_proposal(job)
+        job.proposal = build_proposal(job)
         job.status = AiJobStatus.AWAITING_REVIEW
         log_event(logger, "ai.job.review", job_id=str(job.id), kind=job.kind,
                   wedding_id=str(job.wedding_id))
@@ -530,11 +530,18 @@ def _step_draft(db, settings, job, state, text_model) -> None:
     state["draft"] = draft.model_dump()
 
 
-def _step_guests(db, settings, job, state, text_model) -> None:
+def run_guests_step(db, settings, job, state, text_model, *, final: bool = False) -> None:
     """Guest extraction: the model returns each entry EXACTLY as written
     (names + raw "+1"/kid markers); the deterministic guest_import parser then
     collapses companions and assigns tiers IN CODE. The model never sees,
-    names, or suggests a tier — that is guardrail 1, not a style choice."""
+    names, or suggests a tier — that is guardrail 1, not a style choice.
+
+    An ambiguous entry comes back as a QUESTION rather than a guess (8.5c), and
+    the legible entries still land in `lines` — so the job parks with a partial
+    list plus a couple of things to clear up. `final=True` is the answered
+    re-run: whatever it still can't read is left unresolved rather than asked
+    about again. This is a workflow with a second round, not a chat.
+    """
     lines = _generate(
         db, settings, job, state, text_model,
         key="extract_guests.system",
@@ -542,7 +549,15 @@ def _step_guests(db, settings, job, state, text_model) -> None:
         schema=GuestLines,
         ledger_kind="extract",
     )
-    drafts, unresolved = build_guests([{"name": line} for line in lines.lines])
+    questions = [] if final else [q.model_dump() for q in lines.questions]
+    # A line with an open question against it is NOT a guest yet. Drafting
+    # "Sam's parents" as one solo invitee is precisely the confident wrong answer
+    # the question exists to avoid — hold it aside, and if nobody ever answers,
+    # hand it back as unresolved rather than inventing a party for it.
+    asked_about = {q["about_line"] for q in questions}
+    drafts, unresolved = build_guests(
+        [{"name": line} for line in lines.lines if line not in asked_about]
+    )
     state["guests"] = [
         {
             "name": d.name,
@@ -552,11 +567,17 @@ def _step_guests(db, settings, job, state, text_model) -> None:
         }
         for d in drafts
     ]
-    state["guests_unresolved"] = [u["name"] for u in unresolved]
-    if not state["guests"]:
+    state["guests_unresolved"] = [u["name"] for u in unresolved] + sorted(asked_about)
+    state["guest_questions"] = questions
+    state["guest_rounds"] = int(state.get("guest_rounds") or 0) + 1
+    if not state["guests"] and not questions:
         raise ProviderError(
             "No guest names found in what you shared — paste the list itself and try again"
         )
+
+
+def _step_guests(db, settings, job, state, text_model) -> None:
+    run_guests_step(db, settings, job, state, text_model)
 
 
 def _step_ground(db, settings, job, state, text_model) -> None:
@@ -597,7 +618,7 @@ def _step_glyph(db, settings, job, state, text_model) -> None:
 # Proposal — the reviewable diff. Never auto-applied; the 8.4 apply endpoint
 # writes only its allowlisted paths and re-checks entitlements at apply time.
 # ---------------------------------------------------------------------------
-def _build_proposal(job: AiJob) -> dict:
+def build_proposal(job: AiJob) -> dict:
     state = job.state or {}
     proposal: dict = {"kind": job.kind, "source": "ai"}
     if job.kind == AiJobKind.STORY_ARC:
@@ -618,6 +639,11 @@ def _build_proposal(job: AiJob) -> dict:
     if job.kind == AiJobKind.GUESTS:
         proposal["guests"] = state.get("guests") or []
         proposal["guests_unresolved"] = state.get("guests_unresolved") or []
+        # Open questions park WITH the partial list (8.5c). Answering them is a
+        # second, final round (app/ai/askback.py); ignoring them is fine too —
+        # the list on the table is applicable exactly as it stands.
+        proposal["questions"] = state.get("guest_questions") or []
+        proposal["rounds"] = int(state.get("guest_rounds") or 0)
     if job.kind == AiJobKind.DETAILS:
         facts = state.get("facts") or {}
         details: dict = {}

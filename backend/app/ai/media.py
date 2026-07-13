@@ -25,6 +25,7 @@ import io
 import logging
 from typing import Any
 
+from app.ai.sheets import sheet_to_text
 from app.ai.types import ProviderError, ProviderRefusal, Usage
 from app.config import Settings
 from app.models import AiInput
@@ -226,11 +227,32 @@ def get_media_model(settings: Settings) -> GeminiMedia:
 def transcribe_input(
     settings: Settings, ai_input: AiInput, media: GeminiMedia | None = None
 ) -> tuple[str, Usage | None]:
-    """One submission → text. `text` inputs pass through (no provider call,
-    usage None); media kinds go through Gemini and return what the call cost
-    so the pipeline can ledger it."""
+    """One submission → text. `text` inputs pass through and `sheet` inputs are
+    parsed in code (no provider call, usage None); the genuinely media-shaped
+    kinds go through Gemini and return what the call cost so the pipeline can
+    ledger it."""
     if ai_input.kind == "text":
         return (ai_input.text_content or "")[:MAX_TRANSCRIPT_CHARS], None
+
+    def _bytes() -> bytes:
+        if not ai_input.storage_url or not ai_input.mime:
+            raise ProviderError(f"This {ai_input.kind} submission has no stored file")
+        try:
+            return load_media_bytes(settings, ai_input.storage_url)
+        except UploadError as exc:
+            raise ProviderError(f"could not read the uploaded file: {exc}") from exc
+
+    if ai_input.kind == "sheet":
+        # A table is already structured: reading it is a parser's job, not a
+        # model's. It never reaches a provider, so it works with the whole AI
+        # seam switched off — and it costs nothing.
+        try:
+            return sheet_to_text(_bytes(), ai_input.mime)[:MAX_TRANSCRIPT_CHARS], None
+        except UploadError as exc:
+            raise ProviderError(str(exc)) from exc
+
+    # Config before contents: with the seam off, "turn Gemini on" is the useful
+    # error, not "that file looks wrong".
     if not settings.ai_transcribe_enabled:
         raise ProviderError(
             f"Cannot transcribe a {ai_input.kind!r} input: media understanding "
@@ -238,12 +260,7 @@ def transcribe_input(
             "project only; see AI_WIZARD_PLAN's key table) and leave "
             "AI_LIVE_CALLS / AI_LIVE_TRANSCRIBE on."
         )
-    if not ai_input.storage_url or not ai_input.mime:
-        raise ProviderError(f"This {ai_input.kind} submission has no stored file")
-    try:
-        data = load_media_bytes(settings, ai_input.storage_url)
-    except UploadError as exc:
-        raise ProviderError(f"could not read the uploaded file: {exc}") from exc
+    data = _bytes()
     media = media or get_media_model(settings)
     text, usage = media.transcribe(data, ai_input.mime)
     return text[:MAX_TRANSCRIPT_CHARS], usage

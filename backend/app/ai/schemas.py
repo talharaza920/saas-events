@@ -74,16 +74,32 @@ class GroundingReport(_Strict):
     all_supported: bool
 
 
+class GuestQuestion(_Strict):
+    """One thing the model couldn't read, and the question it would ask about it
+    (Phase 8.5c ask-back). Note what this is NOT: a channel for the model to
+    negotiate, and never a question about invite tiers — those come from the
+    couple's own markers, in code. It asks about a LINE ("Sam's parents"), and
+    the couple's answer is appended to the submission as more untrusted data."""
+
+    about_line: str = Field(max_length=200)
+    question: str = Field(max_length=200)
+
+
 class GuestLines(_Strict):
     """The guest-extraction output: each invited party EXACTLY as the couple
     wrote it ("Riley Park +1", "Kid (Riley Park)") — names only, markers
     preserved. The model never sees, names, or suggests a tier: the
     deterministic guest_import parser assigns tiers from these raw markers in
-    code (the invite-tier secret, guardrail 1)."""
+    code (the invite-tier secret, guardrail 1).
+
+    `questions` is the ask-back (8.5c): ambiguous entries come back as questions
+    INSTEAD of guesses, while everything legible still lands in `lines` — a
+    partial list plus a short question beats a confident wrong one."""
 
     lines: list[Annotated[str, Field(max_length=200)]] = Field(
         default_factory=list, max_length=300
     )
+    questions: list[GuestQuestion] = Field(default_factory=list, max_length=8)
 
 
 class GlyphOutput(_Strict):

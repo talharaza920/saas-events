@@ -63,6 +63,12 @@ ALLOWED_AI_MEDIA_TYPES: dict[str, tuple[str, str]] = {
     "audio/aac": ("audio", "aac"),
     "audio/mp4": ("audio", "m4a"),
     "audio/x-m4a": ("audio", "m4a"),
+    # Sheets (8.5c). Read in CODE (app/ai/sheets.py), never sent to a provider —
+    # they're here so a couple can hand the assistant the spreadsheet that isn't
+    # our import template, not because a model is going to look at it.
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ("sheet", "xlsx"),
+    "text/csv": ("sheet", "csv"),
+    "application/csv": ("sheet", "csv"),
 }
 # Gemini's inline-media request cap is 20 MB INCLUDING base64 inflation (~4/3),
 # so 10 MB of raw file leaves comfortable headroom for the prompt around it.
@@ -148,8 +154,8 @@ def validate_ai_media(content_type: str | None, size: int) -> tuple[str, str]:
     entry = ALLOWED_AI_MEDIA_TYPES.get((content_type or "").lower())
     if entry is None:
         raise UploadError(
-            "Unsupported file type — use an image (PNG/JPG/WebP), a PDF, or an "
-            "audio file (MP3/WAV/M4A/OGG/FLAC/AAC)"
+            "Unsupported file type — use a spreadsheet (XLSX/CSV), an image "
+            "(PNG/JPG/WebP), a PDF, or an audio file (MP3/WAV/M4A/OGG/FLAC/AAC)"
         )
     if size > MAX_AI_MEDIA_BYTES:
         raise UploadError("File is too large (max 10 MB)")

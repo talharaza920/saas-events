@@ -296,6 +296,13 @@ export const aiApi = {
       body: JSON.stringify({ targets: targets ?? null }),
     }),
   styles: () => req<AiStyleOption[]>("/ai/styles"),
+  // 8.5c: answer a guest run's open questions. Free, and it buys exactly ONE
+  // more extraction round — the server enforces both.
+  answerQuestions: (id: string, answers: { index: number; answer: string }[]) =>
+    req<AiJobAdmin>(`/ai/jobs/${id}/answers`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    }),
   regenerate: (id: string, artifact: AiArtifact, steer?: string) =>
     req<AiVariantAdmin>(`/ai/jobs/${id}/regenerate`, {
       method: "POST",

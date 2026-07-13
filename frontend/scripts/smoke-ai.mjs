@@ -2,8 +2,10 @@
  * drives the REAL UI through every AI entry point where it now lives — Details
  * tab (`details` run → apply → venue persisted), Story tab (the staged wizard:
  * text-only park → free hand edit → style → first image → the rest → apply),
- * AI tab (mark → apply → "use as cover icon"), Guests tab (pasted list →
- * deterministic tiers), the guest cover rendering the AI mark, the platform AI
+ * AI tab (mark → apply → "use as cover icon"), Guests tab (8.5c: one intake —
+ * a spreadsheet read by the importer for free, a messy paste read by the model,
+ * which asks about the line it can't read → answer → deterministic tiers), the
+ * guest cover rendering the AI mark, the platform AI
  * console, and the /create → /setup handoff — with server-side API checks where
  * a visual can lie.
  * Requires frontend :3000, a scripts.dev_setup seed (which enables AI on the
@@ -16,7 +18,8 @@
  * exercised for real without a Gemini call (dev only; refused in production).
  * Usage: node scripts/smoke-ai.mjs
  */
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import puppeteer from "puppeteer-core";
 
 const CHROME = process.env.CHROME_PATH || "C:/Program Files/Google/Chrome/Application/chrome.exe";
@@ -268,38 +271,80 @@ ok(
 );
 await page.screenshot({ path: `${OUT}/ai-cover-mark.png` });
 
-// --- 4. Guests tab: raw markers in, deterministic tiers out -------------------
+// --- 4. Guests tab: one entry point, two routes (8.5c) ------------------------
+// 4a. A REAL spreadsheet is a parser's job: it must reach the deterministic
+// importer and spend nothing at all.
 await openTab("Guests");
-ok("guests tab: AI entry point present", await visibleHas("Guest list with AI"));
-// The label button wraps a hidden <input type=file>, so it isn't a leaf —
-// match the button + its input directly rather than via visibleHas.
-ok(
-  "guests run: attach-files control present",
-  await page.evaluate(() =>
-    [...document.querySelectorAll("button, label")].some(
-      (b) => b.textContent.includes("Attach files") && b.querySelector('input[type="file"]'),
-    ),
-  ),
+ok("guests tab: one intake for any shape of list", await waitForText("Add my guest list"));
+const csvPath = resolve(OUT, "smoke-guests.csv");
+writeFileSync(
+  csvPath,
+  "Person,Name,Greeting,Tier\nPrimary,Priya Raman,Priya & Dev,plus_one\nGuest,Dev Raman,,\n",
 );
+const creditsBeforeSheet = (await api("/api/w/alex-and-sam/admin/ai/credits")).remaining;
+const picker = await page.$('input[type="file"]');
+await picker.uploadFile(csvPath);
+await sleep(400);
+await clickText("button", "Add my guest list");
+ok("sheet route: read directly, no AI", await waitForText("Read directly — no AI credits"));
+ok("sheet route: server dry-run previews the rows", await waitForText("1 new"));
+await page.screenshot({ path: `${OUT}/ai-guests-sheet.png` });
+await clickText("button", "Import 1");
+await sleep(1200);
+const afterSheet = await api("/api/w/alex-and-sam/admin/guests");
+const priya = afterSheet.find((g) => g.name === "Priya Raman");
+ok("sheet route: guest created by the importer", priya?.invite_tier === "plus_one");
+ok(
+  "sheet route: cost nothing — no job, no credits",
+  (await api("/api/w/alex-and-sam/admin/ai/credits")).remaining === creditsBeforeSheet,
+);
+await clickText("button", "Done");
+await sleep(600);
+
+// 4b. The messy paste goes to the assistant — which ASKS about the line it
+// can't read instead of inventing a party for it.
 ok(
   "guests run: textarea present",
-  await typeStory("Jordan Lee, Riley Park", "Jordan, Riley +1, Casey and family"),
+  await typeStory("Jordan Lee, Riley Park", "Jordan, Riley +1, Casey and family, the Okonjos"),
 );
-await clickText("button", "Read my guest list");
+await clickText("button", "Add my guest list");
 ok("guests run: reaches review", await waitFor("Here's what it made"));
 ok(
   "guests run: names + owner-facing tier chips shown",
   (await visibleHas("Riley Park")) && (await visibleHas("Family")),
 );
-await page.screenshot({ path: `${OUT}/ai-guests-review.png` });
+ok(
+  "ask-back: the unreadable line is a question, not a guest",
+  (await waitForText("Who's coming from the Okonjo family")) &&
+    (await bodyHas("Left this entry out rather than guess")),
+);
+await page.screenshot({ path: `${OUT}/ai-guests-askback.png` });
+
+const creditsBeforeAnswer = (await api("/api/w/alex-and-sam/admin/ai/credits")).remaining;
+const answerBox = await page.$('input[placeholder*="Mari and Tomas"]');
+await answerBox.click();
+await answerBox.type("Ada Okonjo and her partner");
+await clickText("button", "Send answer");
+ok("ask-back: the answer resolves the line into real guests", await waitFor("Ada Okonjo"));
+ok(
+  "ask-back: it asks only once, and answering is free",
+  !(await bodyHas("Who's coming from the Okonjo family")) &&
+    (await api("/api/w/alex-and-sam/admin/ai/credits")).remaining === creditsBeforeAnswer,
+);
+
 await clickText("button", "Apply");
 ok("guests run: applied", await waitFor("Applied to your wedding"));
 const guestRows = await api("/api/w/alex-and-sam/admin/guests");
 const riley = guestRows.find((g) => g.name === "Riley Park");
 const casey = guestRows.find((g) => g.name === "Casey Nguyen");
+const ada = guestRows.find((g) => g.name === "Ada Okonjo");
 ok(
   "guests run: rows persisted with tiers from the +1/kid markers (never the model)",
   riley?.invite_tier === "plus_one" && casey?.invite_tier === "plus_family",
+);
+ok(
+  "ask-back: the answered line's guest carries a tier from ITS markers too",
+  ada?.invite_tier === "plus_one",
 );
 
 // --- 5. Platform AI console ---------------------------------------------------
@@ -392,7 +437,7 @@ await page.screenshot({ path: `${OUT}/ai-setup-step1.png` });
 await clickText("button", "Skip this step");
 ok("setup: step 2 offers the story assistant", await waitFor("Story chapter with AI"));
 await clickText("button", "Skip this step");
-ok("setup: step 3 offers the guests assistant", await waitFor("Guest list with AI"));
+ok("setup: step 3 offers the guests intake", await waitForText("Add my guest list"));
 await page.screenshot({ path: `${OUT}/ai-setup-step3.png` });
 await clickText("button", "Finish");
 ok("setup: finishing lands on the dashboard", await waitFor("Overview"));

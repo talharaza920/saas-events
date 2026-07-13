@@ -1170,6 +1170,24 @@ class AiStyleOption(BaseModel):
     label: str
 
 
+class AiGuestAnswer(BaseModel):
+    """One reply to one open question, by its position in the proposal's
+    `questions` list (the server checks it against that list — a stale client
+    can't answer a question nobody asked)."""
+
+    model_config = ConfigDict(extra="forbid")
+    index: int = Field(ge=0, le=20)
+    answer: str = Field(max_length=200)
+
+
+class AiAnswersRequest(BaseModel):
+    """The couple's answers to a guest-list ask-back (8.5c). Free, and it buys
+    exactly ONE more extraction round — a workflow, not a chat."""
+
+    model_config = ConfigDict(extra="forbid")
+    answers: list[AiGuestAnswer] = Field(default_factory=list, max_length=20)
+
+
 class AiApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # None = every applicable section; unknown names are a 422 from the apply

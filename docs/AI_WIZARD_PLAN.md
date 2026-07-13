@@ -711,7 +711,24 @@ Built as planned, with three notes worth carrying:
   free-arc allowance; each generated image charges 1 credit; the first
   beat-0 style iteration is free (same goodwill logic as the first regen).
 
-### 8.5c — Guests: standardize-my-list with ask-back
+### 8.5c — Guests: standardize-my-list with ask-back — **BUILT 2026-07-13**
+
+Built as planned, with three notes worth carrying:
+- **A line with an open question is held BACK, not drafted.** The first cut
+  asked about "the Okonjo family" *and* proposed a solo guest of that name —
+  the question is the mechanism, but withholding the guess is the point. A
+  questioned line is excluded from the drafted guests and listed unresolved, so
+  a couple who never answers gets the guests we were sure of and nobody we
+  invented.
+- **Answering is free.** We ask because our extraction was uncertain; charging
+  a credit to answer our own question is charging the couple for our doubt. The
+  ledger still records the call's true dollar cost — the two-round cap is the
+  spend bound, not a price.
+- **A spreadsheet reaches no provider at all**, even when it goes to the AI
+  path: `app/ai/sheets.py` flattens it to text in code, so the sheet input kind
+  sits on the far side of the transcribe gate and works with `AI_LIVE_CALLS`
+  off. Gate on "does this need the provider?", never on "did this arrive as a
+  file?".
 
 - One Guests-tab entry point accepting paste OR file. A real spreadsheet
   routes to the EXISTING deterministic import (no model, no cost); messy

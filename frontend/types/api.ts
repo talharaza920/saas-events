@@ -830,11 +830,14 @@ export interface paths {
         put?: never;
         /**
          * Upload Ai Input
-         * @description One media submission (voice note / photo / PDF), stored under the
-         *     transient ai-inputs namespace (unmetered, reaped with the job or the
-         *     orphan sweep — never rendered on a page). Refused with a clear message
-         *     when the Gemini seam isn't configured: better here than a run that fails
-         *     at its very first step.
+         * @description One media submission (voice note / photo / PDF / spreadsheet), stored
+         *     under the transient ai-inputs namespace (unmetered, reaped with the job or
+         *     the orphan sweep — never rendered on a page).
+         *
+         *     The Gemini kinds are refused with a clear message when that seam isn't
+         *     configured — better here than a run that fails at its very first step. A
+         *     SHEET is not one of them: it's parsed in code (app/ai/sheets.py), so it
+         *     stays available with every provider switched off.
          */
         post: operations["upload_ai_input_api_w__wedding_slug__admin_ai_inputs_upload_post"];
         delete?: never;
@@ -970,6 +973,28 @@ export interface paths {
          *     request, so the client just calls again while panels remain pending.
          */
         post: operations["illustrate_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__illustrate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer Ai Questions
+         * @description Answer a guest-list run's open questions and re-extract ONCE (8.5c).
+         *     Free — we're asking because our extraction was uncertain, and the two-round
+         *     cap is what bounds the spend.
+         */
+        post: operations["answer_ai_questions_api_w__wedding_slug__admin_ai_jobs__job_id__answers_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1682,6 +1707,15 @@ export interface components {
             /** Expected Step */
             expected_step?: number | null;
         };
+        /**
+         * AiAnswersRequest
+         * @description The couple's answers to a guest-list ask-back (8.5c). Free, and it buys
+         *     exactly ONE more extraction round — a workflow, not a chat.
+         */
+        AiAnswersRequest: {
+            /** Answers */
+            answers?: components["schemas"]["AiGuestAnswer"][];
+        };
         /** AiApplyRequest */
         AiApplyRequest: {
             /** Selections */
@@ -1709,6 +1743,18 @@ export interface components {
              * @default false
              */
             images_available: boolean;
+        };
+        /**
+         * AiGuestAnswer
+         * @description One reply to one open question, by its position in the proposal's
+         *     `questions` list (the server checks it against that list — a stale client
+         *     can't answer a question nobody asked).
+         */
+        AiGuestAnswer: {
+            /** Index */
+            index: number;
+            /** Answer */
+            answer: string;
         };
         /**
          * AiIllustrateRequest
@@ -5756,6 +5802,44 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": components["schemas"]["AiIllustrateRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    answer_ai_questions_api_w__wedding_slug__admin_ai_jobs__job_id__answers_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiAnswersRequest"];
             };
         };
         responses: {

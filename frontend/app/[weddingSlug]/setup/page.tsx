@@ -18,6 +18,7 @@ import Typography from "@mui/material/Typography";
 
 import { adminApi, setAdminWedding, AdminAuthError, type AdminMe } from "@/lib/adminApi";
 import AiAssist from "@/components/ai/AiAssist";
+import GuestsIntake from "@/components/admin/GuestsIntake";
 import SignInCard from "@/components/admin/SignInCard";
 
 const STEPS = ["Key details", "Your story", "Guest list"] as const;
@@ -161,18 +162,12 @@ export default function SetupPage() {
               <>
                 <Typography variant="h6">Guest list</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Paste the list however it exists today — a WhatsApp thread, a note, a photo of a
-                  page. Who gets a +1 comes from your own markers, and you check every row before
-                  it&apos;s added. Already have a spreadsheet? Import it from the Guests tab
-                  instead — that path needs no AI at all.
+                  However the list exists today — a spreadsheet, a WhatsApp thread, a note, a photo
+                  of a page. A spreadsheet is read straight through, no AI involved; anything else
+                  goes to the assistant. Who gets a +1 comes from your own markers, and you check
+                  every row before it&apos;s added.
                 </Typography>
-                <AiAssist
-                  me={me}
-                  kind="guests"
-                  blurb="Names, one per line or run together — it sorts them out."
-                  placeholder="Jordan Lee, Riley Park +1, Casey Nguyen + 2 kids…"
-                  cta="Read my guest list"
-                />
+                <GuestsIntake me={me} onChanged={() => {}} />
               </>
             )}
           </Stack>
