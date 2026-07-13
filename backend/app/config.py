@@ -93,6 +93,13 @@ class Settings(BaseSettings):
     ai_live_transcribe: bool | None = None
     ai_live_places: bool | None = None
 
+    # LOCAL-DEV ONLY, and the image twin of the offline `fake` text adapter:
+    # draw placeholder art in-process so the staged story wizard (8.5b) can be
+    # demoed and browser-smoked end to end without spending a cent. Refused
+    # outside development for the obvious reason — a real wedding must never get
+    # a placeholder where it asked for an illustration.
+    ai_fake_images: bool = False
+
     # --- AI: providers + models -------------------------------------------------
     # The text model is pluggable by config; media (Gemini) is a hard-coded seam.
     # `fake` is the offline/test adapter.
@@ -165,6 +172,20 @@ class Settings(BaseSettings):
     @property
     def ai_images_enabled(self) -> bool:
         return bool(self.gemini_api_key) and self._live(self.ai_live_images)
+
+    @property
+    def ai_fake_images_enabled(self) -> bool:
+        """The dev placeholder painter — never in production, whatever the env
+        file says (same stance as the dev admin token)."""
+        return self.ai_fake_images and self.environment != "production"
+
+    @property
+    def ai_images_available(self) -> bool:
+        """Can this process illustrate anything at all? Ask THIS at the call
+        sites: real Gemini, or the dev painter, or neither (in which case the
+        story stays text and the UI says so instead of offering a paid button
+        that can only fail)."""
+        return self.ai_images_enabled or self.ai_fake_images_enabled
 
     @property
     def ai_places_enabled(self) -> bool:

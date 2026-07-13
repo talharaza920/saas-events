@@ -117,7 +117,7 @@ def test_one_active_job_and_idempotency(db_session):
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-active")
     job = create_job(db_session, _settings(), w, kind="story_arc", idempotency_key="k1")
-    assert (job.status, job.steps_total, job.credits_held) == ("queued", 5, 0)  # free arc
+    assert (job.status, job.steps_total, job.credits_held) == ("queued", 4, 0)  # free arc
 
     # Same key → same job, no second charge; new key → 409 (DB partial index).
     assert create_job(db_session, _settings(), w, kind="story_arc", idempotency_key="k1").id == job.id
@@ -182,7 +182,9 @@ def test_story_arc_runs_to_review_with_proposal(db_session):
     job = _run_to_review(db_session, s, job, fake)
 
     assert job.status == "awaiting_review"
-    assert job.step == job.steps_total == 5
+    # 8.5b: transcribe → extract → draft → ground. TEXT ONLY — illustration is
+    # a separate, explicitly clicked stage, so a story run makes no image call.
+    assert job.step == job.steps_total == 4
     # Transcribe: media→text before any model call; the input keeps its transcript.
     db_session.refresh(inp)
     assert "Fern Hall" in inp.transcript
@@ -198,6 +200,7 @@ def test_story_arc_runs_to_review_with_proposal(db_session):
     assert p["kind"] == "story_arc" and p["source"] == "ai"
     assert p["story_arc"]["heading"] == "Alex & Sam"
     assert p["grounding"]["all_supported"] is True
+    assert p["beat_images"] == {} and p["style"]["preset"] == "storybook"
     # 8.5a: the story kind proposes a story and nothing else — the event facts
     # are the `details` kind's job, and apply's SECTIONS_BY_KIND agrees.
     assert "event_details" not in p and "couple_names" not in p

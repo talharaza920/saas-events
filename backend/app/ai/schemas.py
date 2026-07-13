@@ -55,6 +55,9 @@ class DraftArc(_Strict):
     intro: str | None = Field(default=None, max_length=400)
     beats: list[ArcBeat] = Field(min_length=1, max_length=8)
     climax: str | None = Field(default=None, max_length=400)
+    # The unnumbered "you're invited" panel closes the story section, so it is
+    # illustrated like any beat (Phase 8.5b) — the model writes its scene here.
+    climax_image_prompt: str | None = Field(default=None, max_length=600)
 
 
 class UnsupportedClaim(_Strict):

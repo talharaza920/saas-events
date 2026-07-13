@@ -450,6 +450,9 @@ def test_credits_endpoint(db_session, client):
     assert r.json() == {
         "remaining": 9, "included": 10,
         "arc_generations_used": 0, "arc_generations_included": 1,
+        # No Gemini key in the test settings → the UI is told not to offer the
+        # (paid, and here impossible) illustrate button at all.
+        "images_available": False,
     }
 
 

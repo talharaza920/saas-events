@@ -13,7 +13,13 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
-import { aiApi, type AdminMe, type AiJobAdmin, type AiJobKind } from "@/lib/adminApi";
+import {
+  aiApi,
+  type AdminMe,
+  type AiJobAdmin,
+  type AiJobKind,
+  type AiStyleOption,
+} from "@/lib/adminApi";
 import AiReviewPanel from "@/components/ai/AiReviewPanel";
 import AiRunProgress from "@/components/ai/AiRunProgress";
 
@@ -67,6 +73,8 @@ export default function AiAssist({
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [styles, setStyles] = useState<AiStyleOption[]>([]);
+  const [style, setStyle] = useState("storybook");
 
   const load = useCallback(async () => {
     try {
@@ -92,7 +100,8 @@ export default function AiAssist({
     // Fetch-on-mount: setState only happens after load()'s first await.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-  }, [enabled, load]);
+    if (kind === "story_arc") aiApi.styles().then(setStyles).catch(() => setStyles([]));
+  }, [enabled, kind, load]);
 
   if (!enabled) return null; // no AI on this plan — the tab's own tools still work
 
@@ -117,7 +126,11 @@ export default function AiAssist({
       const t = text.trim();
       if (t) inputIds.push((await aiApi.createInput(t)).id);
       for (const f of files) inputIds.push((await aiApi.uploadInput(f)).id);
-      const created = await aiApi.createJob(kind, inputIds, {}, crypto.randomUUID());
+      // The style only ever reaches an image prompt — it's picked here because
+      // it's the couple's first question ("what will it look like?"), but the
+      // story run itself is text, and they can change it again at review.
+      const options = kind === "story_arc" && style ? { style_preset: style } : {};
+      const created = await aiApi.createJob(kind, inputIds, options, crypto.randomUUID());
       setText("");
       setFiles([]);
       setJob(created);
@@ -190,6 +203,26 @@ export default function AiAssist({
               value={text}
               onChange={(e) => setText(e.target.value.slice(0, 20000))}
             />
+            {styles.length > 0 && (
+              <Stack spacing={0.75}>
+                <Typography variant="caption" color="text.secondary">
+                  Illustration style — pick one now or change it later; the story itself is
+                  written first, and you decide when to spend credits on pictures.
+                </Typography>
+                <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
+                  {styles.map((s) => (
+                    <Chip
+                      key={s.key}
+                      size="small"
+                      label={s.label}
+                      color={style === s.key ? "primary" : "default"}
+                      variant={style === s.key ? "filled" : "outlined"}
+                      onClick={() => setStyle(s.key)}
+                    />
+                  ))}
+                </Stack>
+              </Stack>
+            )}
             <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
               <Button component="label" size="small" startIcon={<AttachFileIcon />} disabled={busy}>
                 Attach files

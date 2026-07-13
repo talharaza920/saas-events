@@ -409,3 +409,29 @@ The smokes' `visibleHas` only scans elements with no element children, so a
 `<Typography><strong>Venue:</strong> Fern Hall</Typography>` is invisible to it
 (the leaf `<strong>` holds only "Venue:"). Use a `document.body.innerText`
 check for strings that straddle inline markup.
+
+## A fake seam needs one test that runs its REAL output through the real path
+`AI_FAKE_IMAGES` (the dev placeholder painter) built its `Usage` without the
+required token counts — a `TypeError` on every `/illustrate`. The 400-test suite
+missed it completely, because every test injects its *own* media stub: the fake
+seam that ships with the app was never exercised. Offline fakes are production
+code for the dev environment; each one needs at least one test that calls it and
+pushes its output through the real consumer (here: `prepare_image` + the pricing
+ledger). The browser smoke caught it, but only because it now drives the
+illustrate stage — a smoke that stubs the same layer would have missed it too.
+
+## `visibleHas` also misses a MUI `Button` with a start icon
+Same root cause as the `<strong>` note above, and it bit again in 8.5b: a MUI
+`Button` with `startIcon` renders `<button><svg/>Illustrate…</button>`, so the
+button is not a leaf and its label is invisible to the leaf-only scan. The smoke
+reported "the illustrate CTA is missing" against a UI that was rendering it
+perfectly. `waitForText` (polls `document.body.innerText`) is the tool for any
+control whose label sits beside an icon — which, in MUI, is most of them.
+
+## Resetting local state from a prop: adjust during render, not in an effect
+`StoryDraft` keeps a local editable copy of the server's draft and must adopt the
+server's version whenever it changes (a save, a selected variant). Doing that in
+a `useEffect` renders the stale draft once first and trips the
+`react-hooks/set-state-in-effect` lint. The React-sanctioned pattern is to
+compare a `baseline` state to the incoming prop *during render* and call the
+setters there — no extra render, no lint suppression.

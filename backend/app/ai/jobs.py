@@ -31,8 +31,6 @@ from app.ai.ledger import cost_usd_today, record_usage
 from app.ai.media import (
     GeminiMedia,
     MAX_TRANSCRIPT_CHARS,
-    get_media_model,
-    sniff_image_mime,
     transcribe_input,
 )
 from app.ai.prompts import render_prompt
@@ -44,11 +42,12 @@ from app.ai.schemas import (
     GroundingReport,
     GuestLines,
 )
+from app.ai.styles import MAX_STYLE_NOTE_CHARS, STYLE_PRESETS, resolve_style
 from app.ai.svg import SvgSanitizationError, sanitize_glyph
 from app.ai.types import EFFORT_VALUES, ProviderError, ProviderRefusal, TextModel
 from app.audit_log import record
 from app.config import Settings
-from app.entitlements import check_limit, check_storage, effective_entitlements, require_feature
+from app.entitlements import check_limit, require_feature
 from app.guest_import import build_guests
 from app.models import (
     AiInput,
@@ -59,24 +58,21 @@ from app.models import (
     Wedding,
 )
 from app.obs import log_event
-from app.storage import delete_media_object, prepare_image, store_image, UploadError
+from app.storage import delete_media_object
 from app.timeutil import as_utc, utcnow
 
 logger = logging.getLogger("app.ai")
 
-# Fixed step order per kind. `images` is the Nano Banana fan-out (one request
-# per beat) — it processes a couple of beats per /advance call and repeats
-# until every beat is done, so no single HTTP request runs long.
+# Fixed step order per kind. A `story_arc` run is TEXT ONLY (Phase 8.5b): it
+# parks at review with no art, and illustration is a separate, explicitly
+# clicked stage (app/ai/images.py) — nobody pays for pictures of sentences they
+# are about to rewrite.
 STEPS: dict[str, tuple[str, ...]] = {
     AiJobKind.DETAILS: ("transcribe", "extract", "resolve"),
-    AiJobKind.STORY_ARC: ("transcribe", "extract", "draft", "images", "ground"),
+    AiJobKind.STORY_ARC: ("transcribe", "extract", "draft", "ground"),
     AiJobKind.GLYPH: ("transcribe", "glyph"),
     AiJobKind.GUESTS: ("transcribe", "guests"),
 }
-
-# How many beat images one /advance call generates (each is ~5–15 s at the
-# provider — two keeps the request comfortably under serverless timeouts).
-IMAGES_PER_ADVANCE = 2
 
 # Stuck `running` jobs past this are expired (hold refunded) by the reap cron.
 EXPIRES_AFTER = timedelta(hours=2)
@@ -257,9 +253,8 @@ def advance_job(
 ) -> AiJob:
     """Run exactly one pipeline step. Idempotent per step: a replayed advance
     (expected_step < the current step) is a no-op returning current state;
-    an advance from the future is a 409. The `images` fan-out may leave the
-    job ON its step (partial progress saved in state) — the client just keeps
-    advancing until awaiting_review."""
+    an advance from the future is a 409. The client keeps calling until the
+    job reaches awaiting_review."""
     if job.status == AiJobStatus.AWAITING_REVIEW:
         return job  # already done — replays are harmless
     if job.status not in AiJobStatus.ACTIVE:
@@ -290,7 +285,7 @@ def advance_job(
     job.status = AiJobStatus.RUNNING
     step_name = STEPS[job.kind][job.step]
     try:
-        step_done = _run_step(db, settings, job, step_name, text_model, media_model)
+        _run_step(db, settings, job, step_name, text_model, media_model)
     except ProviderRefusal as exc:
         _terminate(db, settings, job, AiJobStatus.FAILED,
                    f"the model declined this request: {exc}")
@@ -301,8 +296,7 @@ def advance_job(
         db.commit()
         return job
 
-    if step_done is not False:  # False = repeat me (images fan-out mid-flight)
-        job.step += 1
+    job.step += 1
     if job.step >= job.steps_total:
         job.proposal = _build_proposal(job)
         job.status = AiJobStatus.AWAITING_REVIEW
@@ -401,7 +395,10 @@ def _terminate(db: Session, settings: Settings, job: AiJob, status: str, error: 
 
 
 def _bounded_options(options: dict | None) -> dict:
-    """The only owner-supplied knobs a job accepts, clamped."""
+    """The only owner-supplied knobs a job accepts, clamped. `style_preset` is
+    an allowlisted key (the platform owns the sentence it stands for);
+    `style_note` is the couple's untrusted words, bounded — both are used only
+    when an image is actually rendered (app/ai/styles.py)."""
     options = options or {}
     out: dict = {}
     beat_count = options.get("beat_count")
@@ -410,13 +407,17 @@ def _bounded_options(options: dict | None) -> dict:
     tone = options.get("tone")
     if isinstance(tone, str) and tone.strip():
         out["tone"] = tone.strip()[:120]
+    preset = options.get("style_preset")
+    if isinstance(preset, str) and preset in STYLE_PRESETS:
+        out["style_preset"] = preset
+    note = options.get("style_note")
+    if isinstance(note, str) and note.strip():
+        out["style_note"] = note.strip()[:MAX_STYLE_NOTE_CHARS]
     return out
 
 
 # ---------------------------------------------------------------------------
 # Steps — each mutates job.state and stages ledger rows; caller commits.
-# A runner returning False means "not finished, run me again" (the images
-# fan-out); anything else advances to the next step.
 # ---------------------------------------------------------------------------
 def _run_step(
     db: Session,
@@ -425,24 +426,22 @@ def _run_step(
     step_name: str,
     text_model: TextModel,
     media_model: GeminiMedia | None = None,
-) -> bool | None:
+) -> None:
     state = dict(job.state or {})
     runner = {
         "transcribe": _step_transcribe,
         "extract": _step_extract,
         "resolve": _step_resolve,
         "draft": _step_draft,
-        "images": _step_images,
         "ground": _step_ground,
         "glyph": _step_glyph,
         "guests": _step_guests,
     }[step_name]
-    if step_name in ("transcribe", "images"):
-        done = runner(db, settings, job, state, media_model)
+    if step_name == "transcribe":
+        runner(db, settings, job, state, media_model)
     else:
-        done = runner(db, settings, job, state, text_model)
+        runner(db, settings, job, state, text_model)
     job.state = state  # reassign: JSON columns don't track in-place mutation
-    return done
 
 
 def _generate(
@@ -520,7 +519,7 @@ def _step_draft(db, settings, job, state, text_model) -> None:
     user = (
         f"<submission>\n{state.get('submission', '')}\n</submission>\n"
         f"<facts>\n{_dump(state.get('facts') or {})}\n</facts>\n"
-        f"<style>\n{tone}\n</style>"
+        f"<tone>\n{tone}\n</tone>"
     )
     draft = _generate(
         db, settings, job, state, text_model,
@@ -529,67 +528,6 @@ def _step_draft(db, settings, job, state, text_model) -> None:
         ledger_kind="draft",
     )
     state["draft"] = draft.model_dump()
-
-
-def _step_images(db, settings, job, state, media_model) -> bool:
-    """The Nano Banana fan-out (plan step 5): one image request per beat,
-    IMAGES_PER_ADVANCE per call — returns False while beats remain so the
-    client simply advances again. Degrades, never blocks: no Gemini key, a
-    content-filter refusal on one scene, or a full storage quota all leave
-    the affected beats text-only (they render as feathered panels) rather
-    than failing a run the couple already paid a hold for."""
-    beats = (state.get("draft") or {}).get("beats") or []
-    if not settings.ai_images_enabled:
-        if beats:
-            state["images_skipped"] = "illustrations are turned off"
-        return True
-    cap = effective_entitlements(db, job.wedding).get("ai_max_images_per_arc", 0)
-    if not isinstance(cap, int) or isinstance(cap, bool):
-        cap = 0
-    images = dict(state.get("images") or {})
-    refused = dict(state.get("images_refused") or {})
-    image_bytes = dict(state.get("image_bytes") or {})
-    pending = [
-        i for i in range(min(len(beats), cap))
-        if str(i) not in images and str(i) not in refused
-    ]
-
-    media = media_model or get_media_model(settings)
-    for i in pending[:IMAGES_PER_ADVANCE]:
-        prompt = (beats[i].get("image_prompt") or "").strip()
-        if not prompt:
-            refused[str(i)] = "no scene description"
-            continue
-        try:
-            data, usage = media.generate_image(prompt)
-        except ProviderRefusal as exc:
-            # This scene only — the run continues, the beat stays text-only.
-            log_event(logger, "ai.image.refused", job_id=str(job.id), beat=i)
-            refused[str(i)] = str(exc)[:200]
-            continue
-        record_usage(db, wedding_id=job.wedding_id, job_id=job.id,
-                     kind="image", usage=usage, images=1)
-        mime = sniff_image_mime(data)
-        try:
-            blob, ext = prepare_image(data, mime)
-        except UploadError as exc:
-            refused[str(i)] = f"unusable image ({exc})"
-            continue
-        try:
-            check_storage(db, job.wedding, adding_bytes=len(blob))
-        except HTTPException:
-            state["images_skipped"] = "this wedding's storage is full"
-            state["images"], state["images_refused"] = images, refused
-            state["image_bytes"] = image_bytes
-            return True  # keep what we have; stop generating
-        url = store_image(settings, job.wedding.slug, blob, ext, mime)
-        job.wedding.storage_bytes_used = (job.wedding.storage_bytes_used or 0) + len(blob)
-        images[str(i)] = url
-        image_bytes[url] = len(blob)
-
-    state["images"], state["images_refused"] = images, refused
-    state["image_bytes"] = image_bytes
-    return len(pending) <= IMAGES_PER_ADVANCE
 
 
 def _step_guests(db, settings, job, state, text_model) -> None:
@@ -663,12 +601,20 @@ def _build_proposal(job: AiJob) -> dict:
     state = job.state or {}
     proposal: dict = {"kind": job.kind, "source": "ai"}
     if job.kind == AiJobKind.STORY_ARC:
+        options = state.get("options") or {}
         proposal["story_arc"] = state.get("draft")
         proposal["grounding"] = state.get("grounding")
-        # Generated beat art rides NEXT TO the draft (never inside it — the
-        # draft revalidates through DraftArc at apply, whose schema the model
-        # owns; an `image` field there would invite the model to fill it).
-        proposal["beat_images"] = state.get("images") or {}
+        # Text only at review (8.5b): art arrives via /illustrate, panel by
+        # panel, and rides NEXT TO the draft (never inside it — the draft
+        # revalidates through DraftArc at apply, whose schema the model owns;
+        # an `image` field there would invite the model to fill it).
+        proposal["beat_images"] = {}
+        proposal["images_refused"] = {}
+        proposal["user_edited"] = []
+        proposal["style"] = {
+            "preset": resolve_style(options).key,
+            "note": options.get("style_note") or None,
+        }
     if job.kind == AiJobKind.GUESTS:
         proposal["guests"] = state.get("guests") or []
         proposal["guests_unresolved"] = state.get("guests_unresolved") or []

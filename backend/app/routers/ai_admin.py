@@ -6,11 +6,13 @@
   POST …/jobs                 {kind, input_ids, options}  [Idempotency-Key]
   GET  …/jobs, …/jobs/{id}    status, step, proposal, variants
   POST …/jobs/{id}/advance    drives exactly ONE pipeline step; idempotent per step
+  PATCH …/jobs/{id}/proposal  {story_arc?, style_preset?, style_note?} → free human edits
+  POST …/jobs/{id}/illustrate {targets?} → renders panels; 1 credit each
   POST …/jobs/{id}/regenerate {artifact, steer?} → a new variant, old ones kept
   POST …/jobs/{id}/select     {artifact, variant_id} → the keeper, into the proposal
   POST …/jobs/{id}/apply      {selections?} → transactional, allowlisted writes only
   POST …/jobs/{id}/cancel     refunds the hold
-  GET  …/credits              balance for the wizard UI
+  GET  …/credits, …/styles    balance + the illustration-style chips
 
 Everything rides `require_wedding` (401 unauth / 404 non-member / 403
 suspended-write), and every job lookup re-checks `wedding_id` — the
@@ -28,10 +30,13 @@ from sqlalchemy.orm import Session
 
 from app.ai.apply import apply_proposal
 from app.ai.credits import arc_generations_used, credits_remaining
+from app.ai.edit import edit_proposal
+from app.ai.images import illustrate
 from app.ai.jobs import advance_job, cancel_job, create_job
 from app.ai.media import GeminiMedia, get_media_model
 from app.ai.providers import get_text_model
 from app.ai.runtime import effective_settings
+from app.ai.styles import STYLE_PRESETS
 from app.ai.types import TextModel
 from app.ai.variants import regenerate_artifact, select_variant
 from app.authz import WeddingCtx, require_wedding
@@ -45,12 +50,15 @@ from app.schemas import (
     AiApplyRequest,
     AiApplyResult,
     AiCreditsInfo,
+    AiIllustrateRequest,
     AiInputCreate,
     AiInputRef,
     AiJobAdmin,
     AiJobCreate,
+    AiProposalEdit,
     AiRegenerateRequest,
     AiSelectRequest,
+    AiStyleOption,
     AiVariantAdmin,
 )
 
@@ -296,6 +304,57 @@ def select_ai_variant(
     return _job_admin(db, job)
 
 
+@router.patch("/jobs/{job_id}/proposal", response_model=AiJobAdmin)
+def edit_ai_proposal(
+    job_id: UUID,
+    payload: AiProposalEdit,
+    ctx: WeddingCtx = Depends(editor_ctx),
+    db: Session = Depends(get_db),
+) -> AiJobAdmin:
+    """The couple's own edits to the draft, and the illustration style. Free —
+    no provider call — and the shortest path from "almost" to "yes"."""
+    job = _get_job(db, ctx.wedding, job_id)
+    job = edit_proposal(
+        db, job,
+        story_arc=payload.story_arc,
+        style_preset=payload.style_preset,
+        style_note=payload.style_note,
+        user=ctx.user,
+    )
+    return _job_admin(db, job)
+
+
+@router.post("/jobs/{job_id}/illustrate", response_model=AiJobAdmin)
+def illustrate_ai_job(
+    job_id: UUID,
+    payload: AiIllustrateRequest | None = None,
+    ctx: WeddingCtx = Depends(editor_ctx),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_ai_settings_effective),
+    media_model: GeminiMedia = Depends(get_job_media_model),
+) -> AiJobAdmin:
+    """Illustrate panels of a settled draft — the stage where images cost money
+    (1 credit each, onto the job's hold). Renders at most IMAGES_PER_CALL per
+    request, so the client just calls again while panels remain pending."""
+    job = _get_job(db, ctx.wedding, job_id)
+    job = illustrate(
+        db, settings, job,
+        targets=payload.targets if payload else None,
+        media_model=media_model,
+        user=ctx.user,
+    )
+    return _job_admin(db, job)
+
+
+@router.get("/styles", response_model=list[AiStyleOption])
+def ai_styles(ctx: WeddingCtx = Depends(member_ctx)) -> list[AiStyleOption]:
+    """The illustration-style chips. Server-owned: the couple picks a key, the
+    platform owns the sentence it stands for (app/ai/styles.py). Rides
+    require_wedding like every route here — the authz matrix has no holes in
+    it, not even for static data."""
+    return [AiStyleOption(key=s.key, label=s.label) for s in STYLE_PRESETS.values()]
+
+
 @router.post("/jobs/{job_id}/apply", response_model=AiApplyResult)
 def apply_ai_job(
     job_id: UUID,
@@ -329,6 +388,7 @@ def cancel_ai_job(
 def ai_credits(
     ctx: WeddingCtx = Depends(member_ctx),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_ai_settings_effective),
 ) -> AiCreditsInfo:
     ents = effective_entitlements(db, ctx.wedding)
 
@@ -341,4 +401,5 @@ def ai_credits(
         included=_int("ai_credits_included"),
         arc_generations_used=arc_generations_used(db, ctx.wedding),
         arc_generations_included=_int("ai_arc_generations_included"),
+        images_available=settings.ai_images_available,
     )

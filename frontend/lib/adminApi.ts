@@ -113,9 +113,11 @@ export type AiJobAdmin = Omit<components["schemas"]["AiJobAdmin"], "proposal" | 
 };
 export type AiApplyResult = components["schemas"]["AiApplyResult"];
 export type AiCreditsInfo = components["schemas"]["AiCreditsInfo"];
+export type AiStyleOption = components["schemas"]["AiStyleOption"];
 export type AiJobKind = "details" | "story_arc" | "glyph" | "guests";
-// arc.beat.N = that beat's generated image.
-export type AiArtifact = "arc.text" | "glyph" | `arc.beat.${number}`;
+// arc.beat.N / arc.beat.climax = that panel's generated image (8.5b: the
+// climax is illustrated like any beat).
+export type AiArtifact = "arc.text" | "glyph" | `arc.beat.${number}` | "arc.beat.climax";
 
 /** Flatten an answer value to a display string (any question type). */
 export function formatAnswer(v: AnswerValue | null | undefined): string {
@@ -276,6 +278,24 @@ export const aiApi = {
       method: "POST",
       body: JSON.stringify({ expected_step: expectedStep ?? null }),
     }),
+  // The couple's own edits to a story draft, and the illustration style —
+  // free, no provider call (8.5b). Omitted fields are left alone.
+  editProposal: (
+    id: string,
+    patch: { story_arc?: Json; style_preset?: string; style_note?: string },
+  ) =>
+    req<AiJobAdmin>(`/ai/jobs/${id}/proposal`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  // Renders panels of a settled draft — 1 credit each. `targets` omitted =
+  // the next batch of un-illustrated ones ("illustrate the rest").
+  illustrate: (id: string, targets?: string[]) =>
+    req<AiJobAdmin>(`/ai/jobs/${id}/illustrate`, {
+      method: "POST",
+      body: JSON.stringify({ targets: targets ?? null }),
+    }),
+  styles: () => req<AiStyleOption[]>("/ai/styles"),
   regenerate: (id: string, artifact: AiArtifact, steer?: string) =>
     req<AiVariantAdmin>(`/ai/jobs/${id}/regenerate`, {
       method: "POST",

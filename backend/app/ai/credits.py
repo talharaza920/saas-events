@@ -25,10 +25,16 @@ from app.models import AiJob, AiJobKind, AiJobStatus, Wedding
 # roughly $0.30–$1.50 all-in).
 CREDIT_COST: dict[str, int] = {
     AiJobKind.DETAILS: 1,  # two short text calls + a Places lookup — no images
-    AiJobKind.STORY_ARC: 3,
+    AiJobKind.STORY_ARC: 3,  # the TEXT run: draft + grounding pass, no art
     AiJobKind.GLYPH: 1,
     AiJobKind.GUESTS: 1,
 }
+
+# Images are the expensive call and, since 8.5b, an explicit click rather than
+# part of a story run — so they're priced per image on top of the flat hold
+# above (added to `credits_held`, hence refunded with it if the run is
+# cancelled). See app/ai/images.py.
+IMAGE_CREDIT_COST = 1
 
 # Kinds that draw from the free-arc allowance.
 _ARC_KINDS = (AiJobKind.STORY_ARC,)

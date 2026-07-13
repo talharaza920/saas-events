@@ -19,6 +19,7 @@ from sqlalchemy import select
 
 import app.storage as storage
 from app.ai.apply import apply_proposal
+from app.ai.images import illustrate, pending_targets
 from app.ai.jobs import advance_job, cancel_job, create_job
 from app.ai.media import GeminiMedia, transcribe_input
 from app.ai.pricing import cost_usd_micros
@@ -78,6 +79,7 @@ def _fake_text(beats: int = 3) -> FakeTextModel:
                 for i in range(beats)
             ],
             "climax": "Join them.",
+            "climax_image_prompt": "scene climax, a long table",
         },
         "ground.system": {"unsupported": [], "all_supported": True},
         "extract_guests.system": {
@@ -129,8 +131,7 @@ def _add_text_input(db, wedding, text: str = "We're Alex and Sam.") -> AiInput:
 
 
 def _run_to_review(db, settings, job, fake, media=None) -> AiJob:
-    # The images step repeats (IMAGES_PER_ADVANCE per call), so allow slack.
-    for _ in range(job.steps_total + 6):
+    for _ in range(job.steps_total + 2):
         job = advance_job(db, settings, job, text_model=fake, media_model=media)
         if job.status not in ("queued", "running"):
             break
@@ -257,99 +258,102 @@ def test_transcribe_without_key_or_refused_fails_job_and_sweeps(db_session, tmp_
 
 
 # ---------------------------------------------------------------------------
-# The images fan-out step
+# Illustration — an explicit stage since 8.5b (app/ai/images.py), never part of
+# the run. The staged wizard's own rules (style, edits, credits) live in
+# test_ai_staged_story.py; these cover the Gemini/storage/sweep plumbing.
 # ---------------------------------------------------------------------------
-def test_images_fanout_partial_progress_ledger_and_proposal(db_session):
+def _illustrated(db, s, w, media, *, beats=3, targets=None) -> AiJob:
+    inp = _add_text_input(db, w)
+    job = create_job(db, s, w, kind="story_arc", input_ids=[inp.id])
+    job = _run_to_review(db, s, job, _fake_text(beats=beats), media)
+    assert job.proposal["beat_images"] == {}  # the run itself renders nothing
+    return illustrate(db, s, job, targets=targets, media_model=media)
+
+
+def test_illustrate_renders_in_batches_ledgers_and_meters(db_session):
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-img")
     s = _settings()
-    _fake = _fake_text(beats=3)
     media = FakeMedia()
-    inp = _add_text_input(db_session, w)
-    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
-
-    # transcribe, extract, draft…
-    for _ in range(3):
-        job = advance_job(db_session, s, job, text_model=_fake, media_model=media)
-    assert job.step == 3  # sitting on images
-    # …first images pass does IMAGES_PER_ADVANCE beats and stays on the step…
-    job = advance_job(db_session, s, job, text_model=_fake, media_model=media)
-    assert job.step == 3 and len(job.state["images"]) == 2
-    # …second pass finishes the last beat and moves on.
-    job = advance_job(db_session, s, job, text_model=_fake, media_model=media)
-    assert job.step == 4 and len(job.state["images"]) == 3
-
-    job = advance_job(db_session, s, job, text_model=_fake, media_model=media)  # ground
-    assert job.status == "awaiting_review"
-    assert set(job.proposal["beat_images"]) == {"0", "1", "2"}
+    # 3 beats + the climax panel = 4 targets, IMAGES_PER_CALL at a time.
+    job = _illustrated(db_session, s, w, media, beats=3)
+    assert set(job.proposal["beat_images"]) == {"0", "1"}
+    job = illustrate(db_session, s, job, media_model=media)
+    assert set(job.proposal["beat_images"]) == {"0", "1", "2", "climax"}
+    assert pending_targets(job) == []
 
     rows = _ledger(db_session, "image")
-    assert len(rows) == 3
+    assert len(rows) == 4
     assert all(r.images == 1 and r.model == "gemini-3.1-flash-image" for r in rows)
     assert all(r.cost_usd_micros == 67_000 for r in rows)  # $0.067/image
     assert (w.storage_bytes_used or 0) > 0  # generated art IS metered
+    # The text run rode the free-arc allowance (hold 0); the 4 images are
+    # 1 credit each, added to the same hold so a cancel refunds them.
+    assert job.credits_held == 4
 
 
-def test_images_refusal_skips_beat_and_no_key_skips_step(db_session):
+def test_illustrate_refusal_leaves_one_panel_text_only(db_session):
     _enable_ai(db_session)
-    s = _settings()
-
     w = make_wedding(db_session, "wed-img-refuse")
-    inp = _add_text_input(db_session, w)
+    s = _settings()
     media = FakeMedia(refuse_image_prompts=("scene 1",))
+    job = _illustrated(db_session, s, w, media, beats=2, targets=["0", "1"])
+    assert set(job.proposal["beat_images"]) == {"0"}  # beat 1 stays text-only
+    assert "1" in job.proposal["images_refused"]
+    assert job.credits_held == 1  # the refused panel charged nothing
+
+
+def test_illustrate_without_images_configured_is_refused_cleanly(db_session):
+    _enable_ai(db_session)
+    w = make_wedding(db_session, "wed-img-nokey")
+    s = _settings(gemini_api_key="")
+    inp = _add_text_input(db_session, w)
     job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
-    job = _run_to_review(db_session, s, job, _fake_text(beats=3), media)
-    assert job.status == "awaiting_review"
-    assert set(job.proposal["beat_images"]) == {"0", "2"}  # beat 1 stays text-only
+    job = _run_to_review(db_session, s, job, _fake_text(beats=2))
+    assert job.status == "awaiting_review"  # the TEXT run is unaffected
 
-    w2 = make_wedding(db_session, "wed-img-nokey")
-    inp2 = _add_text_input(db_session, w2)
-    no_key = _settings(gemini_api_key="")
-    job2 = create_job(db_session, no_key, w2, kind="story_arc", input_ids=[inp2.id])
-    job2 = _run_to_review(db_session, no_key, job2, _fake_text(beats=3))
-    assert job2.status == "awaiting_review"
-    assert job2.proposal["beat_images"] == {}
-    assert _ledger(db_session, "image") != []  # only the refusal run ledgered calls
+    with pytest.raises(HTTPException) as exc:
+        illustrate(db_session, s, job, media_model=FakeMedia())
+    assert exc.value.status_code == 422
+    assert job.proposal["beat_images"] == {}
+    assert _ledger(db_session, "image") == []
 
 
-def test_images_respect_the_per_arc_cap(db_session):
+def test_illustrate_respects_the_per_arc_cap(db_session):
     _enable_ai(db_session, ai_max_images_per_arc=1)
     w = make_wedding(db_session, "wed-img-cap")
     s = _settings()
-    inp = _add_text_input(db_session, w)
     media = FakeMedia()
-    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
-    job = _run_to_review(db_session, s, job, _fake_text(beats=3), media)
-    assert job.status == "awaiting_review"
+    job = _illustrated(db_session, s, w, media, beats=3)
     assert set(job.proposal["beat_images"]) == {"0"}
     assert len(media.image_calls) == 1
+    with pytest.raises(HTTPException) as exc:
+        illustrate(db_session, s, job, media_model=media)
+    assert exc.value.status_code == 403
 
 
 def test_cancel_sweeps_generated_images_and_frees_bytes(db_session):
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-img-cancel")
     s = _settings()
-    inp = _add_text_input(db_session, w)
-    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
-    job = _run_to_review(db_session, s, job, _fake_text(beats=2), FakeMedia())
+    job = _illustrated(db_session, s, w, FakeMedia(), beats=1)
     urls = list(job.proposal["beat_images"].values())
-    assert len(urls) == 2 and (w.storage_bytes_used or 0) > 0
+    assert len(urls) == 2 and (w.storage_bytes_used or 0) > 0  # beat 0 + climax
 
     cancel_job(db_session, s, job)
     assert (w.storage_bytes_used or 0) == 0
+    assert job.credits_held == 0  # the images were refunded with the hold
     for url in urls:
         with pytest.raises(storage.UploadError):
             storage.load_media_bytes(s, url)
 
 
-def test_apply_writes_beat_images_and_sweeps_the_unkept(db_session):
+def test_apply_writes_beat_and_climax_images_and_sweeps_the_unkept(db_session):
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-img-apply")
     s = _settings()
-    inp = _add_text_input(db_session, w)
     media = FakeMedia()
-    job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
-    job = _run_to_review(db_session, s, job, _fake_text(beats=2), media)
+    job = _illustrated(db_session, s, w, media, beats=1)  # beat 0 + climax
     original_beat0 = job.proposal["beat_images"]["0"]
 
     # Regenerate beat 0's art and keep the new one.
@@ -368,9 +372,9 @@ def test_apply_writes_beat_images_and_sweeps_the_unkept(db_session):
 
     result = apply_proposal(db_session, s, w, job)
     assert result["applied"] == ["story_arc"]
-    arc_beats = w.story_arcs[0].content["beats"]
-    assert arc_beats[0]["image"] == variant.image_url
-    assert "image" in arc_beats[1]
+    arc = w.story_arcs[0].content
+    assert arc["beats"][0]["image"] == variant.image_url
+    assert arc["climax"]["image"] == job.proposal["beat_images"]["climax"]
     # The unselected original beat-0 image is gone; the kept two remain.
     with pytest.raises(storage.UploadError):
         storage.load_media_bytes(s, original_beat0)
@@ -381,10 +385,11 @@ def test_selecting_a_regenerated_arc_text_clears_stale_beat_art(db_session):
     _enable_ai(db_session)
     w = make_wedding(db_session, "wed-img-swap")
     s = _settings()
-    inp = _add_text_input(db_session, w)
     fake = _fake_text(beats=2)
+    inp = _add_text_input(db_session, w)
     job = create_job(db_session, s, w, kind="story_arc", input_ids=[inp.id])
     job = _run_to_review(db_session, s, job, fake, FakeMedia())
+    job = illustrate(db_session, s, job, targets=["0", "1"], media_model=FakeMedia())
     assert len(job.proposal["beat_images"]) == 2
 
     new_text = regenerate_artifact(

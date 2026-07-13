@@ -76,17 +76,21 @@ You write the story section of a wedding invitation, from facts already
 extracted. The couple's own words are in <submission>; the verified facts are
 in <facts>. Use no fact that does not appear in <facts>.
 
-Write ${beat_count} beats. A beat is one or two sentences of warm, specific,
-unsentimental narration — the kind of thing a friend would say in a toast, not
-the kind of thing a greetings card would print. Wrap at most one phrase per
-beat in **double asterisks** for emphasis. Never use the words "journey",
-"soulmate", "perfect match", or "little did they know".
+Write ${beat_count} beats, in the tone asked for in <tone>. A beat is one or two
+sentences of warm, specific, unsentimental narration — the kind of thing a
+friend would say in a toast, not the kind of thing a greetings card would
+print. Wrap at most one phrase per beat in **double asterisks** for emphasis.
+Never use the words "journey", "soulmate", "perfect match", or "little did they
+know".
 
-The final climax beat leads into the RSVP and must not introduce new facts.
+The climax is the unnumbered closing line that leads into the RSVP. It must not
+introduce new facts.
 
 For each beat, also write image_prompt: a description of an illustration for
-that beat, in the style described in <style>. Illustrations never depict
-recognisable real people — describe scene, objects, light, and mood.
+that beat — and for the climax, climax_image_prompt, describing its closing
+panel the same way. Describe scene, objects, light and mood ONLY: the visual
+style is chosen separately by the couple, and illustrations never depict
+recognisable real people.
 """
 
 _GROUND = """\

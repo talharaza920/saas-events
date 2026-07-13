@@ -1,15 +1,19 @@
-/** Dev-only AI smoke (AI_WIZARD_PLAN 8.4b, re-pointed at the 8.5a funnel):
+/** Dev-only AI smoke (AI_WIZARD_PLAN, re-pointed at the 8.5b staged wizard):
  * drives the REAL UI through every AI entry point where it now lives — Details
- * tab (`details` run → apply → venue persisted), Story tab (story run → amber
- * grounding flag → regenerate → pick the other variant → apply), AI tab (mark →
- * apply → "use as cover icon"), Guests tab (pasted list → deterministic tiers),
- * the guest cover rendering the AI mark, the platform AI console, and the
- * /create → /setup handoff — with server-side API checks where a visual can lie.
- * Requires backend :8000 started with AI_LIVE_CALLS=false + frontend :3000 + a
- * scripts.dev_setup seed (which enables AI on the local default plan).
+ * tab (`details` run → apply → venue persisted), Story tab (the staged wizard:
+ * text-only park → free hand edit → style → first image → the rest → apply),
+ * AI tab (mark → apply → "use as cover icon"), Guests tab (pasted list →
+ * deterministic tiers), the guest cover rendering the AI mark, the platform AI
+ * console, and the /create → /setup handoff — with server-side API checks where
+ * a visual can lie.
+ * Requires frontend :3000, a scripts.dev_setup seed (which enables AI on the
+ * local default plan), and the backend :8000 started with
+ *     AI_LIVE_CALLS=false AI_FAKE_IMAGES=true
  * AI_LIVE_CALLS=false is the ONE switch that keeps this free: it serves the
  * offline fake text model AND holds back Places/Nano Banana, whose real keys
  * live in backend/.env (see LEARNINGS — this smoke used to spend money).
+ * AI_FAKE_IMAGES paints placeholder art in-process so the illustrate stage is
+ * exercised for real without a Gemini call (dev only; refused in production).
  * Usage: node scripts/smoke-ai.mjs
  */
 import { mkdirSync } from "node:fs";
@@ -73,6 +77,16 @@ async function waitFor(text, attempts = 30) {
   }
   return false;
 }
+/** waitFor, over the rendered TEXT — for strings inside a non-leaf element, e.g.
+ * a MUI Button with a start icon (<button><svg/>Illustrate…</button>), which
+ * visibleHas's leaf-only scan can't see. */
+async function waitForText(text, attempts = 30) {
+  for (let i = 0; i < attempts; i++) {
+    if (await bodyHas(text)) return true;
+    await sleep(500);
+  }
+  return false;
+}
 /** Type into the (visible) MUI multiline textarea matched by placeholder. */
 async function typeStory(placeholderPart, text) {
   const el = await page.$(`textarea[placeholder*="${placeholderPart}"]`);
@@ -100,15 +114,6 @@ const clickInCard = (heading, sel, text) =>
     sel,
     text,
   );
-/** Click a variant card by its chip label ("Version 2") — the clickable Paper
- * is the chip's ancestor, so a bare text match would hit an outer container. */
-const clickVariant = (label) =>
-  page.evaluate((t) => {
-    const chip = [...document.querySelectorAll(".MuiChip-label")].find((e) => e.textContent === t);
-    const card = chip?.closest(".MuiPaper-root");
-    if (card) card.click();
-    return Boolean(card);
-  }, label);
 const api = (path) =>
   fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${TOKEN}` } }).then((r) => r.json());
 
@@ -148,9 +153,13 @@ ok(
   content.event_details?.venue,
 );
 
-// --- 2. Story tab: story-chapter run end to end -------------------------------
+// --- 2. Story tab: the STAGED story wizard (8.5b) ------------------------------
+// Text first (no image money), edit it for free, pick a style, then one image,
+// then the rest. Images here are the dev painter (AI_FAKE_IMAGES=true) — the
+// real Nano Banana path is pinned in pytest and was live-verified in 8.1c.
 await openTab("Story");
 ok("story tab: AI entry point present", await visibleHas("Story chapter with AI"));
+ok("story run: style chips offered up front", await visibleHas("Watercolour"));
 ok("story run: textarea present", await typeStory("bus stop in the rain", STORY));
 // The seeded template already has an arc, so the CTA is the "another" variant;
 // on an empty wedding it reads "Draft my story".
@@ -159,28 +168,70 @@ if (!(await clickText("button", "Draft another chapter"))) {
 }
 ok("story run: reaches review", await waitFor("Here's what it made"));
 ok("story run: amber grounding flag shown", await visibleHas("A fact-check pass"));
-await page.screenshot({ path: `${OUT}/ai-story-review.png` });
-
-// Regenerate (first one is free), then pick the new variant. The two demo
-// arcs alternate (per-process cycle), so assert the INTRO SWAPPED rather than
-// pinning which one comes second.
-const hadBusIntro = await visibleHas("A missed bus");
-await clickText("button", "Regenerate");
-ok("story run: regen produces a second variant", await waitFor("Version 2"));
-await clickVariant("Version 2");
+// The whole point of 8.5b: the run parks as TEXT — no image was generated, and
+// the couple is offered ONE, deliberately.
 ok(
-  "story run: selecting the variant swaps the proposal",
-  await waitFor(hadBusIntro ? "Six years" : "A missed bus"),
+  "story run: parks text-only (no art yet)",
+  (await page.$$eval("img", (els) => els.filter((e) => e.alt.startsWith("Illustration")).length)) === 0,
 );
-await page.screenshot({ path: `${OUT}/ai-story-variants.png` });
+ok("story run: offers the first image as one deliberate click",
+  await waitForText("Illustrate the first scene"));
+await page.screenshot({ path: `${OUT}/ai-story-text-review.png` });
+
+// The couple's own words: edit a beat, save (free), and the server records it.
+const jobsBefore = await api("/api/w/alex-and-sam/admin/ai/jobs");
+const storyJob = jobsBefore.find((j) => j.status === "awaiting_review" && j.kind === "story_arc");
+const jobId = storyJob.id;
+const heldBeforeEdit = storyJob.credits_held;
+await page.evaluate(() => {
+  const field = [...document.querySelectorAll("textarea")].find((t) =>
+    t.closest(".MuiFormControl-root")?.textContent.startsWith("Beat 1"),
+  );
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+  setter.call(field, "They met under one umbrella, in the rain.");
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+});
+await sleep(400);
+await clickText("button", "Save your changes");
+await sleep(1200);
+const edited = await api(`/api/w/alex-and-sam/admin/ai/jobs/${jobId}`);
+ok(
+  "story run: a hand edit is saved free and flagged as the couple's words",
+  edited.proposal.story_arc.beats[0].text.startsWith("They met under one umbrella") &&
+    edited.proposal.user_edited.includes("beats.0.text") &&
+    edited.credits_held === heldBeforeEdit, // editing moves no money
+);
+
+// One image, in the chosen style, then the rest — each an explicit click.
+await clickText("button", "Illustrate the first scene");
+ok("story run: the first illustration lands", await waitForText("Redo this image"));
+await page.screenshot({ path: `${OUT}/ai-story-first-image.png` });
+await clickText("button", "Illustrate the rest");
+ok("story run: the remaining panels illustrate on demand", await waitFor("Every panel is illustrated"));
+await sleep(800);
+const illustrated = await api(`/api/w/alex-and-sam/admin/ai/jobs/${jobId}`);
+const panelCount = Object.keys(illustrated.proposal.beat_images).length;
+ok(
+  "story run: every panel incl. the climax has art, 1 credit each",
+  Object.keys(illustrated.proposal.beat_images).includes("climax") &&
+    illustrated.credits_held === heldBeforeEdit + panelCount,
+  `held=${illustrated.credits_held} panels=${Object.keys(illustrated.proposal.beat_images).join(",")}`,
+);
+await page.screenshot({ path: `${OUT}/ai-story-illustrated.png` });
 
 await clickText("button", "Apply");
 ok("story run: applied", await waitFor("Applied to your wedding"));
 
-// Definitive check: the arc row exists server-side with AI provenance.
+// Definitive check: the arc row exists server-side with AI provenance, the
+// couple's edited words, and the climax panel's art.
 const arcs = await api("/api/w/alex-and-sam/admin/story-arcs");
 const aiArc = arcs.find((a) => a.content?.ai_generated === true);
 ok("story run: ai_generated arc persisted via the allowlisted writer", Boolean(aiArc), aiArc?.title);
+ok(
+  "story run: the applied arc keeps the couple's edit and the climax image",
+  aiArc?.content?.beats?.[0]?.text?.startsWith("They met under one umbrella") &&
+    Boolean(aiArc?.content?.climax?.image),
+);
 
 // --- 3. AI tab: mark (glyph) run + "use as cover icon" ------------------------
 await openTab("AI");

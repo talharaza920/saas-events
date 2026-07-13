@@ -89,6 +89,7 @@ _DEMO_ARCS = [
              "image_prompt": "a small kitchen table, pancakes, a ring box"},
         ],
         "climax": "And now — come celebrate with them.",
+        "climax_image_prompt": "a long table under strung lights, places set for friends",
     },
     {
         "kicker": "How it began",
@@ -103,6 +104,7 @@ _DEMO_ARCS = [
              "image_prompt": "smoke over a pan, two people laughing"},
         ],
         "climax": "Join them for the next chapter.",
+        "climax_image_prompt": "an open door onto a garden at golden hour",
     },
 ]
 

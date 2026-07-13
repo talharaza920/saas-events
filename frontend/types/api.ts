@@ -933,6 +933,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/proposal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit Ai Proposal
+         * @description The couple's own edits to the draft, and the illustration style. Free —
+         *     no provider call — and the shortest path from "almost" to "yes".
+         */
+        patch: operations["edit_ai_proposal_api_w__wedding_slug__admin_ai_jobs__job_id__proposal_patch"];
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/illustrate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Illustrate Ai Job
+         * @description Illustrate panels of a settled draft — the stage where images cost money
+         *     (1 credit each, onto the job's hold). Renders at most IMAGES_PER_CALL per
+         *     request, so the client just calls again while panels remain pending.
+         */
+        post: operations["illustrate_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__illustrate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/styles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ai Styles
+         * @description The illustration-style chips. Server-owned: the couple picks a key, the
+         *     platform owns the sentence it stands for (app/ai/styles.py). Rides
+         *     require_wedding like every route here — the authz matrix has no holes in
+         *     it, not even for static data.
+         */
+        get: operations["ai_styles_api_w__wedding_slug__admin_ai_styles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/apply": {
         parameters: {
             query?: never;
@@ -1638,6 +1704,22 @@ export interface components {
             arc_generations_used: number;
             /** Arc Generations Included */
             arc_generations_included: number;
+            /**
+             * Images Available
+             * @default false
+             */
+            images_available: boolean;
+        };
+        /**
+         * AiIllustrateRequest
+         * @description Render panels of a settled story draft. None = the next batch of
+         *     un-illustrated ones ("illustrate the rest"); an explicit list = exactly
+         *     those, which is how the couple renders beat 0 first and iterates the style
+         *     on it before spending on the others.
+         */
+        AiIllustrateRequest: {
+            /** Targets */
+            targets?: string[] | null;
         };
         /**
          * AiInputCreate
@@ -1797,6 +1879,23 @@ export interface components {
             /** Max Tokens */
             max_tokens?: number | null;
         };
+        /**
+         * AiProposalEdit
+         * @description The couple's own edits to a story proposal (free, no provider call).
+         *     `story_arc` re-validates through DraftArc server-side — this is a dict here
+         *     only because the wire shape belongs to app/ai/schemas.py, which is the one
+         *     place the draft's bounds are defined.
+         */
+        AiProposalEdit: {
+            /** Story Arc */
+            story_arc?: {
+                [key: string]: unknown;
+            } | null;
+            /** Style Preset */
+            style_preset?: string | null;
+            /** Style Note */
+            style_note?: string | null;
+        };
         /** AiRegenerateRequest */
         AiRegenerateRequest: {
             /** Artifact */
@@ -1902,6 +2001,13 @@ export interface components {
             };
             /** Live Calls */
             live_calls: boolean;
+        };
+        /** AiStyleOption */
+        AiStyleOption: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
         };
         /** AiUsageDay */
         AiUsageDay: {
@@ -5584,6 +5690,115 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_ai_proposal_api_w__wedding_slug__admin_ai_jobs__job_id__proposal_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiProposalEdit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    illustrate_ai_job_api_w__wedding_slug__admin_ai_jobs__job_id__illustrate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AiIllustrateRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ai_styles_api_w__wedding_slug__admin_ai_styles_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiStyleOption"][];
                 };
             };
             /** @description Validation Error */

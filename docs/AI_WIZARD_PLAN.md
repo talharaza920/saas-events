@@ -668,7 +668,21 @@ machinery. Slices ship independently, in order.
   note), offered on the Details tab / setup step 1. Story and guests remain
   their own kinds. Apply's `SECTIONS_BY_KIND` shrinks accordingly.
 
-### 8.5b — Staged story wizard (the core)
+### 8.5b — Staged story wizard (the core) — **BUILT 2026-07-13**
+
+Built as planned, with three notes worth carrying:
+- **Per-image credits ride the job's hold** (`credits_held += 1` per rendered
+  panel), so cancelling a run refunds the art with the text. The "first style
+  iteration is free" goodwill is the EXISTING free-first-regen rule applied to
+  `arc.beat.0` — no second metering concept was added.
+- **`AI_FAKE_IMAGES`** (dev only, refused when `ENVIRONMENT=production`) paints
+  placeholder art in-process — the image twin of the offline `fake` text
+  adapter. Without it the illustrate stage could not be demoed or browser-smoked
+  without spending. Transcription is deliberately NOT faked: inventing a
+  transcript of a couple's voice note puts words in their mouths.
+- The UI only offers the (paid) illustrate buttons when the server says it can
+  actually illustrate (`AiCreditsInfo.images_available`) — same rule as
+  everywhere else: never render a button that can only fail.
 
 - `story_arc` drops `images` from its auto step list; the run parks at
   review as TEXT ONLY (cheap to iterate).

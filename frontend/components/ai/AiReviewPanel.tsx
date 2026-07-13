@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -15,7 +13,6 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
-import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
 import {
@@ -27,24 +24,15 @@ import {
   type AiVariantAdmin,
 } from "@/lib/adminApi";
 
+import { SteerBox, VariantStrip } from "./AiVariants";
 import GlyphMark from "./GlyphMark";
+import StoryDraft from "./StoryDraft";
 
 // Loose views over the proposal JSON (assembled in app/ai/jobs.py). Every
 // field is optional — the review UI renders what's there and nothing else.
 interface Fact {
   value?: string;
   supported_by?: string;
-}
-interface ProposalArcBeat {
-  text?: string;
-  image_prompt?: string;
-}
-interface ProposalArc {
-  kicker?: string | null;
-  heading?: string;
-  intro?: string | null;
-  beats?: ProposalArcBeat[];
-  climax?: string | null;
 }
 interface ProposalGlyph {
   svg_children?: string;
@@ -126,11 +114,6 @@ export default function AiReviewPanel({
 
   const reviewing = job.status === "awaiting_review";
   const proposal = rec(job.proposal);
-  const grounding = rec(proposal.grounding);
-  const unsupported = (Array.isArray(grounding.unsupported) ? grounding.unsupported : [])
-    .map((u) => rec(u))
-    .filter((u) => u.draft_text || u.reason);
-  const flaggedTexts = new Set(unsupported.map((u) => String(u.draft_text ?? "")));
 
   const run = async (tag: string, fn: () => Promise<void>) => {
     setBusy(tag);
@@ -144,15 +127,11 @@ export default function AiReviewPanel({
     }
   };
 
+  // The glyph's compare-then-pick flow. (The story's own regenerations live in
+  // StoryDraft, which owns the staged text→image wizard.)
   const regenerate = (artifact: AiArtifact) =>
     run(`regen:${artifact}`, async () => {
-      const variant = await aiApi.regenerate(job.id, artifact, steer[artifact]);
-      // A new beat image is what the couple just asked to see — select it
-      // (the previous one stays one click away in the variant strip). Text
-      // and glyph keep the compare-then-pick flow.
-      if (artifact.startsWith("arc.beat.")) {
-        await aiApi.selectVariant(job.id, artifact, variant.id);
-      }
+      await aiApi.regenerate(job.id, artifact, steer[artifact]);
       setSteer((s) => ({ ...s, [artifact]: "" }));
       onJob(await aiApi.getJob(job.id));
       loadCredits();
@@ -224,10 +203,8 @@ export default function AiReviewPanel({
     );
   }
 
-  const arc = rec(proposal.story_arc) as ProposalArc;
   const glyph = rec(proposal.glyph) as ProposalGlyph;
   const details = rec(proposal.event_details);
-  const beatImages = rec(proposal.beat_images) as Record<string, string>;
   const guests = (Array.isArray(proposal.guests) ? proposal.guests : []).map(
     (g) => rec(g) as ProposalGuest,
   );
@@ -251,92 +228,6 @@ export default function AiReviewPanel({
       </Box>
     </Stack>
   );
-
-  const steerBox = (artifact: AiArtifact) => (
-    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" } }}>
-      <TextField
-        size="small"
-        fullWidth
-        label="Want it different? Tell it how"
-        placeholder="e.g. less flowery — and don't mention the rain"
-        value={steer[artifact] ?? ""}
-        onChange={(e) => setSteer({ ...steer, [artifact]: e.target.value.slice(0, 500) })}
-      />
-      <Button
-        variant="outlined"
-        startIcon={busy === `regen:${artifact}` ? <CircularProgress size={16} /> : <AutoAwesomeIcon />}
-        disabled={busy !== null}
-        onClick={() => regenerate(artifact)}
-        sx={{ whiteSpace: "nowrap" }}
-      >
-        Regenerate
-      </Button>
-    </Stack>
-  );
-
-  const variantStrip = (artifact: AiArtifact) => {
-    const variants = job.variants.filter((v) => v.artifact === artifact);
-    if (variants.length < 2) return null;
-    return (
-      <Stack direction="row" spacing={1.5} sx={{ overflowX: "auto", pb: 1 }}>
-        {variants.map((v, i) => {
-          const c = rec(v.content);
-          return (
-            <Paper
-              key={v.id}
-              variant="outlined"
-              onClick={() => !v.selected && busy === null && select(artifact, v)}
-              sx={{
-                p: 1.5,
-                minWidth: 180,
-                maxWidth: 240,
-                cursor: v.selected ? "default" : "pointer",
-                borderColor: v.selected ? "primary.main" : "divider",
-                borderWidth: v.selected ? 2 : 1,
-                flexShrink: 0,
-              }}
-            >
-              <Stack spacing={1}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                  <Chip
-                    size="small"
-                    label={v.selected ? "Selected" : `Version ${i + 1}`}
-                    color={v.selected ? "primary" : "default"}
-                    variant={v.selected ? "filled" : "outlined"}
-                  />
-                  {busy === `select:${v.id}` && <CircularProgress size={14} />}
-                </Stack>
-                {v.image_url ? (
-                  <Box
-                    component="img"
-                    src={v.image_url}
-                    alt="Illustration option"
-                    sx={{ width: "100%", borderRadius: 1, display: "block" }}
-                  />
-                ) : artifact === "glyph" ? (
-                  <>
-                    <GlyphMark svg={String(c.svg_children ?? "")} size={56} />
-                    <Typography variant="caption" color="text.secondary">
-                      {String(c.concept ?? "")}
-                    </Typography>
-                  </>
-                ) : (
-                  <Typography variant="caption" sx={{ display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                    {String(c.intro ?? (Array.isArray(c.beats) ? rec(c.beats[0]).text ?? "" : ""))}
-                  </Typography>
-                )}
-                {v.steer && (
-                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic" }}>
-                    “{v.steer}”
-                  </Typography>
-                )}
-              </Stack>
-            </Paper>
-          );
-        })}
-      </Stack>
-    );
-  };
 
   return (
     <Stack spacing={2}>
@@ -403,85 +294,17 @@ export default function AiReviewPanel({
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Stack spacing={1.5}>
             {sectionHeader("story_arc", "Added as a new story chapter — it won't touch existing ones")}
-            <Box sx={{ pl: 5.5 }}>
-              {arc.kicker && (
-                <Typography variant="overline" color="text.secondary">
-                  {arc.kicker}
-                </Typography>
-              )}
-              <Typography variant="h6">{arc.heading}</Typography>
-              {arc.intro && <Typography color="text.secondary">{arc.intro}</Typography>}
-              <Stack spacing={1.5} sx={{ my: 1.5 }}>
-                {(arc.beats ?? []).map((b, i) => {
-                  const flagged = flaggedTexts.has(String(b.text ?? ""));
-                  const image = beatImages[String(i)];
-                  const beatArtifact = `arc.beat.${i}` as AiArtifact;
-                  return (
-                    <Stack key={i} direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
-                      <Chip size="small" label={String(i + 1).padStart(2, "0")} variant="outlined" />
-                      <Stack spacing={0.75} sx={{ flexGrow: 1, minWidth: 0 }}>
-                        <Typography variant="body2" sx={{ pt: 0.25 }}>
-                          {b.text}
-                          {flagged && (
-                            <WarningAmberIcon
-                              color="warning"
-                              sx={{ fontSize: 16, verticalAlign: "text-bottom", ml: 0.5 }}
-                            />
-                          )}
-                        </Typography>
-                        {image && (
-                          <Box
-                            component="img"
-                            src={image}
-                            alt={`Illustration for beat ${i + 1}`}
-                            sx={{ width: 160, borderRadius: 1, display: "block" }}
-                          />
-                        )}
-                        {/* Image actions only when this run produced art at
-                            all — a keyless/skipped run stays text-only rather
-                            than offering a button that can only fail. */}
-                        {Object.keys(beatImages).length > 0 && (image || b.image_prompt) && (
-                          <Box>
-                            <Button
-                              size="small"
-                              startIcon={
-                                busy === `regen:${beatArtifact}` ? (
-                                  <CircularProgress size={14} />
-                                ) : (
-                                  <AutoAwesomeIcon sx={{ fontSize: 16 }} />
-                                )
-                              }
-                              disabled={busy !== null}
-                              onClick={() => regenerate(beatArtifact)}
-                            >
-                              {image ? "Redo this image" : "Illustrate this beat"}
-                            </Button>
-                          </Box>
-                        )}
-                        {variantStrip(beatArtifact)}
-                      </Stack>
-                    </Stack>
-                  );
-                })}
-              </Stack>
-              {arc.climax && <Typography variant="body2">{arc.climax}</Typography>}
+            <Box sx={{ pl: { xs: 0, sm: 5.5 } }}>
+              {/* 8.5b: the story is a staged wizard of its own — text you can
+                  edit for free, then images one deliberate click at a time. */}
+              <StoryDraft
+                job={job}
+                onJob={onJob}
+                onSpend={loadCredits}
+                disabled={busy !== null}
+                imagesAvailable={credits?.images_available ?? false}
+              />
             </Box>
-            {unsupported.length > 0 && (
-              <Alert severity="warning" icon={<WarningAmberIcon />}>
-                <Typography variant="body2" sx={{ mb: 0.5 }}>
-                  A fact-check pass couldn&apos;t trace {unsupported.length === 1 ? "this line" : "these lines"} back to what you told us — read
-                  {unsupported.length === 1 ? " it" : " them"} before applying:
-                </Typography>
-                {unsupported.map((u, i) => (
-                  <Typography key={i} variant="caption" sx={{ display: "block" }}>
-                    “{String(u.draft_text ?? "")}” — {String(u.reason ?? "")}
-                  </Typography>
-                ))}
-              </Alert>
-            )}
-            <Divider flexItem />
-            {variantStrip("arc.text")}
-            {steerBox("arc.text")}
           </Stack>
         </Paper>
       )}
@@ -495,8 +318,19 @@ export default function AiReviewPanel({
               <Typography color="text.secondary">{glyph.concept}</Typography>
             </Stack>
             <Divider flexItem />
-            {variantStrip("glyph")}
-            {steerBox("glyph")}
+            <VariantStrip
+              variants={job.variants.filter((v) => v.artifact === "glyph")}
+              busyId={busy?.startsWith("select:") ? busy.slice(7) : null}
+              disabled={busy !== null}
+              onSelect={(v) => select("glyph", v)}
+            />
+            <SteerBox
+              value={steer["glyph"] ?? ""}
+              onChange={(v) => setSteer({ ...steer, glyph: v })}
+              onRegenerate={() => regenerate("glyph")}
+              busy={busy === "regen:glyph"}
+              disabled={busy !== null}
+            />
           </Stack>
         </Paper>
       )}
@@ -540,8 +374,9 @@ export default function AiReviewPanel({
       )}
 
       <Typography variant="caption" color="text.secondary">
-        The first regeneration of each piece is free; after that each costs 1 credit. Nothing
-        goes on your site until you press Apply.
+        Editing anything yourself is free. The first regeneration of each piece is free too;
+        after that each costs 1 credit, as does each illustration. Nothing goes on your site
+        until you press Apply.
       </Typography>
 
       <Stack direction="row" spacing={1.5}>

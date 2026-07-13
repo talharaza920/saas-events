@@ -62,7 +62,7 @@ def test_render_substitutes_allowlisted_variables(db_session):
         provider="anthropic", user="<facts>…</facts>",
         variables={"beat_count": 4},
     )
-    assert "Write 4 beats." in p.system
+    assert "Write 4 beats," in p.system
     assert p.user == "<facts>…</facts>"
     assert p.version == 0 and p.provider == ""  # code default
 

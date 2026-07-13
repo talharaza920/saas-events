@@ -38,6 +38,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.images import CLIMAX_TARGET
 from app.ai.jobs import sweep_generated_images
 from app.ai.schemas import DraftArc
 from app.ai.svg import SvgSanitizationError, sanitize_glyph
@@ -201,21 +202,23 @@ def _apply_event_details(wedding: Wedding, proposal: dict) -> bool:
 
 
 def _applied_image_urls(settings: Settings, proposal: dict) -> list[str]:
-    """Exactly the beat-image URLs the story_arc writer wrote (same
+    """Exactly the panel-image URLs the story_arc writer wrote (same
     validation), so the post-apply sweep keeps those and only those."""
     arc = proposal.get("story_arc") or {}
     beats = arc.get("beats") if isinstance(arc, dict) else None
     count = len(beats) if isinstance(beats, list) else 0
-    urls = (_beat_image(settings, proposal, i) for i in range(count))
+    keys = [str(i) for i in range(count)] + [CLIMAX_TARGET]
+    urls = (_beat_image(settings, proposal, k) for k in keys)
     return [u for u in urls if u]
 
 
-def _beat_image(settings: Settings, proposal: dict, index: int) -> str | None:
-    """The proposal's image URL for beat `index`, or None. Defence in depth on
-    stored JSON: only a URL our own storage minted (local /media mount or the
-    Supabase public bucket) is ever written where a page will render it."""
+def _beat_image(settings: Settings, proposal: dict, key: str) -> str | None:
+    """The proposal's image URL for panel `key` ("0".."7" or "climax"), or
+    None. Defence in depth on stored JSON: only a URL our own storage minted
+    (local /media mount or the Supabase public bucket) is ever written where a
+    page will render it."""
     images = proposal.get("beat_images")
-    url = images.get(str(index)) if isinstance(images, dict) else None
+    url = images.get(key) if isinstance(images, dict) else None
     if not isinstance(url, str) or not url.strip() or len(url) > 500:
         return None
     url = url.strip()
@@ -243,16 +246,22 @@ def _apply_story_arc(db: Session, settings: Settings, wedding: Wedding, proposal
     beats = []
     for i, beat in enumerate(draft.beats):
         entry: dict = {"text": beat.text}
-        image = _beat_image(settings, proposal, i)
+        image = _beat_image(settings, proposal, str(i))
         if image:  # beats without art render as feathered text panels
             entry["image"] = image
         beats.append(entry)
+    climax: dict | None = None
+    if draft.climax:
+        climax = {"text": draft.climax}
+        climax_image = _beat_image(settings, proposal, CLIMAX_TARGET)
+        if climax_image:
+            climax["image"] = climax_image
     arc_content = {
         "kicker": draft.kicker,
         "heading": draft.heading,
         "intro": draft.intro,
         "beats": beats,
-        "climax": {"text": draft.climax} if draft.climax else None,
+        "climax": climax,
         "ai_generated": True,  # provenance, stamped on every row apply creates
     }
     db.add(

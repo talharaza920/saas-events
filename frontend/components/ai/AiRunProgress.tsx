@@ -17,15 +17,15 @@ const STEP_LABELS: Record<string, string> = {
   extract: "Pulling out the facts",
   resolve: "Checking venue details",
   draft: "Writing your story",
-  images: "Illustrating the beats",
   ground: "Fact-checking the draft",
   glyph: "Designing your mark",
   guests: "Reading the guest list",
 };
 
+// A story run is text only (8.5b) — illustration is a separate, clicked stage.
 const STEPS_BY_KIND: Record<string, string[]> = {
   details: ["transcribe", "extract", "resolve"],
-  story_arc: ["transcribe", "extract", "draft", "images", "ground"],
+  story_arc: ["transcribe", "extract", "draft", "ground"],
   glyph: ["transcribe", "glyph"],
   guests: ["transcribe", "guests"],
 };
@@ -59,9 +59,8 @@ export default function AiRunProgress({
       .finally(() => {
         advancing.current = false;
       });
-    // Depend on the job OBJECT, not just its step: the images fan-out step
-    // legitimately returns the same step number while it works through beats,
-    // and each server response (a fresh object) must trigger the next pass.
+    // Depend on the job OBJECT, not just its step: every server response is a
+    // fresh object and must trigger the next pass.
   }, [active, paused, job, onJob]);
 
   if (!active && !paused) return null;

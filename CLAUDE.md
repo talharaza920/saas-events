@@ -88,7 +88,9 @@ for **local SQLite** (`sqlite:///./dev.db`); delete it to hit **Supabase**.
   `backend/.env` holds real Gemini/Places keys. With it on, `AI_LIVE_IMAGES` /
   `_TRANSCRIBE` / `_PLACES` / `_TEXT` switch off one capability each. The model
   follows the provider (`AI_TEXT_PROVIDER=openai` is a complete config; ids in
-  `AI_MODEL_*`), and the backend logs its AI mode on boot.
+  `AI_MODEL_*`), and the backend logs its AI mode on boot. `AI_FAKE_IMAGES=true`
+  (dev only, refused in production) paints placeholder art so the story wizard's
+  illustrate stage runs offline — the AI smoke needs it.
 - **Env is only the AI bootstrap.** Provider/model/effort and every prompt are
   editable in the platform console (`/platform` → AI), stored in the DB and
   resolved by `ai/runtime.effective_settings()` — env supplies the default and

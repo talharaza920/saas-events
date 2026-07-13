@@ -4,12 +4,13 @@ The resumable source of truth for platform work. Phases are defined in
 `SAAS_PLAN.md`. The predecessor build's milestone history (M1–M14) lives in
 that private repo, not here.
 
-_Last updated: 2026-07-12 (Phases 1–5 built & tested locally; review P0, P1
+_Last updated: 2026-07-13 (Phases 1–5 built & tested locally; review P0, P1
 AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
-deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`) is now **feature-complete
-locally**: 8.0–8.4b plus 8.1c (Gemini transcribe, Nano Banana beat images,
-`guests` kind, golden-set eval — run live on OpenAI + Gemini with real keys).
-Remaining: Anthropic/Places keys, the approval-queue decision, infra.)_
+deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`): 8.0–8.4b + 8.1c + the
+8.5a funnel + the AI-config/console rework + **8.5b, the staged story wizard**
+(text first, free hand edits, images one deliberate click at a time) are all
+done locally. Next: 8.5c guests ask-back, then 8.5d likeness, 8.5e theme
+presets. Remaining: Anthropic key, the approval-queue decision, infra.)_
 
 ## Where things stand (one paragraph)
 
@@ -396,10 +397,37 @@ there).
   providers have a key (booleans only — a key never crosses the wire). Prompts
   were already fully editable (template/provider/model/effort/max-tokens,
   versioned, activate-to-roll-back). `tests/test_ai_console_model.py` (12).
+- [x] **8.5b Staged story wizard — DONE (local) 2026-07-13.** A `story_arc` run
+  is now TEXT ONLY (`STEPS` drops `images`; 4 steps, no image call, no image
+  credit) and parks at review as an **editable outline**: `PATCH
+  …/ai/jobs/{id}/proposal` (`app/ai/edit.py`) re-validates the couple's edits
+  through `DraftArc` (bounds hold; only `story_arc` is writable), records every
+  changed path in `proposal.user_edited`, and **drops the grounding flags on
+  lines they rewrote** — the fact-check exists to catch the model inventing
+  things, and a sentence the couple typed needs no receipt. Editing is free and
+  makes no provider call. Illustration became an explicit stage
+  (`app/ai/images.py`): `POST …/illustrate {targets?}` renders panels — the
+  beats **and the climax** (`DraftArc.climax_image_prompt`, applied as
+  `climax.image`, which the guest Story component already renders) — two per
+  call, **1 credit each onto the job's hold** (so a cancel refunds the art with
+  the text), capped by `ai_max_images_per_arc`, with refusals/full-storage
+  leaving that one panel text-only. The couple's path: read → edit → pick a
+  **style** → illustrate beat 0 → iterate the style on that one image → then the
+  rest. Styles are allowlisted keys owned by the platform
+  (`app/ai/styles.py`, `GET …/ai/styles`) plus a bounded, untrusted `style_note`
+  that rides the image prompt as data, with the no-text/no-real-people
+  guardrails appended AFTER it. Editing a beat's Illustration line unpairs its
+  now-stale art. Frontend: `components/ai/StoryDraft.tsx` (the staged wizard),
+  `AiVariants.tsx` (shared strip + steer box — the old text-variant preview read
+  the wrong key and always rendered blank; fixed), style chips at input in
+  `AiAssist`. **`AI_FAKE_IMAGES`** (dev only, refused in production) paints
+  placeholder art in-process — the image twin of the offline `fake` text
+  adapter — so this whole stage demos and browser-smokes for free; the UI only
+  offers the paid buttons when `AiCreditsInfo.images_available` says the server
+  can actually illustrate. Tests: `tests/test_ai_staged_story.py` (13) + the
+  rewritten image block of `test_ai_media_guests.py`.
 - [ ] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
-  Phase 8.5; build order a→e; 8.5a DONE):** 8.5b staged story wizard (style presets,
-  editable outline incl. climax image, direct proposal edits,
-  confirm→first-image→illustrate-all, per-image credits) · 8.5c guests
+  Phase 8.5; build order a→e; 8.5a + 8.5b DONE):** 8.5c guests
   ask-back loop + spreadsheet routing · 8.5d likeness behind
   `ai_likeness_enabled` (generic consent now, legal framing DEFERRED — open
   risk) · 8.5e ~10 theme presets on the Theme tab, platform-owned: a console
@@ -411,7 +439,30 @@ there).
   provider); decision on forcing AI-drafted weddings through the approval
   queue; likeness legal framing before public launch.
 
-## Test & verification status (2026-07-12, post-8.5a)
+## Test & verification status (2026-07-13, post-8.5b)
+
+- `pytest`: **406 passed, 1 skipped** (393 at 8.5a + `test_ai_staged_story.py`
+  13). The new suite pins what 8.5b actually promises: a story run parks
+  text-only (no image call, no image credit); a hand edit is free, re-validated
+  through `DraftArc` (long/empty/extra-field edits are 422s), flagged in
+  `user_edited`, and drops the grounding claim on the line it rewrote; images
+  charge 1 credit each and stop at the balance BEFORE the provider call; the
+  style note reaches the image prompt and never the story text, and an unknown
+  style key falls back instead of failing; the dev painter cannot exist in
+  production and a real Gemini key is never shadowed by it. The image block of
+  `test_ai_media_guests.py` was rewritten around `/illustrate` (batching,
+  ledgering, metering, per-arc cap, refusal → text-only panel, cancel refunds +
+  sweeps, apply writes beat AND climax art and sweeps the unkept).
+- AI smoke (`node scripts/smoke-ai.mjs`, backend started with
+  **`AI_LIVE_CALLS=false AI_FAKE_IMAGES=true`**): **46/46** — the staged story
+  wizard in a real browser with API-verified writes (text-only park → free hand
+  edit saved and flagged → first image → the rest incl. the climax → apply,
+  with the applied arc keeping the couple's words and the climax art).
+- E2E smoke (`node scripts/smoke-e2e.mjs`): **21/21**, unchanged by 8.5b.
+- Frontend: `tsc --noEmit`, `eslint .`, `next build` clean; API types
+  regenerated.
+
+## Test & verification status (2026-07-12, post-8.5a — kept for history)
 
 - `pytest`: **393 passed, 1 skipped** (369 at 8.5a + `test_ai_config.py` 12 and
   `test_ai_console_model.py` 12 from the config/console work of 2026-07-13).

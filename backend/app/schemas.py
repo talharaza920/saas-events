@@ -1123,9 +1123,9 @@ class AiAdvanceRequest(BaseModel):
     expected_step: int | None = Field(default=None, ge=0, le=50)
 
 
-# arc.beat.N = that beat's image (validated against the job's actual beat
-# count server-side; this pattern just bounds the wire format).
-_AI_ARTIFACT_PATTERN = r"^(arc\.text|glyph|arc\.beat\.\d{1,2})$"
+# arc.beat.N / arc.beat.climax = that panel's image (validated against the
+# job's actual scenes server-side; this pattern just bounds the wire format).
+_AI_ARTIFACT_PATTERN = r"^(arc\.text|glyph|arc\.beat\.(\d{1,2}|climax))$"
 
 
 class AiRegenerateRequest(BaseModel):
@@ -1139,6 +1139,35 @@ class AiSelectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     artifact: str = Field(pattern=_AI_ARTIFACT_PATTERN, max_length=20)
     variant_id: UUID
+
+
+class AiProposalEdit(BaseModel):
+    """The couple's own edits to a story proposal (free, no provider call).
+    `story_arc` re-validates through DraftArc server-side — this is a dict here
+    only because the wire shape belongs to app/ai/schemas.py, which is the one
+    place the draft's bounds are defined."""
+
+    model_config = ConfigDict(extra="forbid")
+    story_arc: dict[str, Any] | None = None
+    # The illustration style: an allowlisted preset key + the couple's bounded
+    # note. Both only ever reach an image prompt (app/ai/styles.py).
+    style_preset: str | None = Field(default=None, max_length=40)
+    style_note: str | None = Field(default=None, max_length=200)
+
+
+class AiIllustrateRequest(BaseModel):
+    """Render panels of a settled story draft. None = the next batch of
+    un-illustrated ones ("illustrate the rest"); an explicit list = exactly
+    those, which is how the couple renders beat 0 first and iterates the style
+    on it before spending on the others."""
+
+    model_config = ConfigDict(extra="forbid")
+    targets: list[str] | None = Field(default=None, max_length=10)
+
+
+class AiStyleOption(BaseModel):
+    key: str
+    label: str
 
 
 class AiApplyRequest(BaseModel):
@@ -1186,6 +1215,10 @@ class AiCreditsInfo(BaseModel):
     included: int
     arc_generations_used: int
     arc_generations_included: int
+    # Can this deployment illustrate at all (Gemini configured and live, or the
+    # dev painter)? False = the review UI keeps the story text-only and says so,
+    # instead of offering a paid button that could only fail.
+    images_available: bool = False
 
 
 class AiSettingsPayload(BaseModel):

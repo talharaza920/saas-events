@@ -37,27 +37,29 @@ from sqlalchemy.orm import Session
 
 from app.ai.jobs import _dump, check_circuit_breaker
 from app.ai.credits import credits_remaining
+from app.ai.images import illustration_targets, render_image
 from app.ai.ledger import record_usage
-from app.ai.media import GeminiMedia, get_media_model, sniff_image_mime
+from app.ai.media import GeminiMedia, get_media_model
 from app.ai.prompts import render_prompt
 from app.ai.schemas import DraftArc, GlyphOutput, GroundingReport
+from app.ai.styles import compose_image_prompt
 from app.ai.svg import SvgSanitizationError, sanitize_glyph
 from app.ai.types import EFFORT_VALUES, ProviderError, ProviderRefusal, TextModel
 from app.audit_log import record
 from app.config import Settings
-from app.entitlements import check_limit, check_storage, require_feature
+from app.entitlements import check_limit, require_feature
 from app.models import AiJob, AiJobKind, AiJobStatus, AiVariant
-from app.storage import prepare_image, store_image, UploadError
 
 ARTIFACT_ARC_TEXT = "arc.text"
 ARTIFACT_GLYPH = "glyph"
-# A single beat's image: "arc.beat.0", "arc.beat.1", … (index into the
-# CURRENT proposal's beats).
-ARTIFACT_BEAT_RE = re.compile(r"^arc\.beat\.(\d{1,2})$")
+# One panel's image: "arc.beat.0", "arc.beat.1", … or "arc.beat.climax" (the
+# closing "you're invited" panel). The suffix is a key into the CURRENT
+# proposal's illustration targets.
+ARTIFACT_BEAT_RE = re.compile(r"^arc\.beat\.(\d{1,2}|climax)$")
 # Which artifacts a job of each kind can regenerate (a `details` proposal has
 # nothing regenerable — it's extracted facts, which the owner simply edits).
-# Beat images are validated by _beat_index (they need a beat count, not a
-# fixed list).
+# Panel images are validated by _image_target (they need the draft's scenes,
+# not a fixed list).
 ARTIFACTS_BY_KIND: dict[str, tuple[str, ...]] = {
     AiJobKind.STORY_ARC: (ARTIFACT_ARC_TEXT,),
     AiJobKind.GLYPH: (ARTIFACT_GLYPH,),
@@ -66,16 +68,18 @@ MAX_STEER_CHARS = 500
 REGEN_CREDIT_COST = 1  # after the free first regen of each artifact
 
 
-def _beat_index(job: AiJob, artifact: str) -> int | None:
-    """The beat index for an `arc.beat.N` artifact of THIS job, or None."""
+def _image_target(job: AiJob, artifact: str) -> str | None:
+    """The illustration-target key for an `arc.beat.*` artifact of THIS job
+    ("0", "3", "climax"), or None when the artifact isn't one / the panel it
+    names has no scene in the current draft."""
     if job.kind != AiJobKind.STORY_ARC:
         return None
     m = ARTIFACT_BEAT_RE.match(artifact)
     if not m:
         return None
-    index = int(m.group(1))
-    beats = ((job.proposal or {}).get("story_arc") or {}).get("beats") or []
-    return index if index < len(beats) else None
+    key = m.group(1)
+    scenes = dict(illustration_targets(job.proposal))
+    return key if key in scenes else None
 
 
 def regenerate_artifact(
@@ -96,7 +100,7 @@ def regenerate_artifact(
     require_feature(db, wedding, "ai_enabled")
     if job.status != AiJobStatus.AWAITING_REVIEW:
         raise HTTPException(status_code=409, detail=f"Job is {job.status}")
-    beat = _beat_index(job, artifact)
+    beat = _image_target(job, artifact)
     if artifact not in ARTIFACTS_BY_KIND.get(job.kind, ()) and beat is None:
         raise HTTPException(
             status_code=422,
@@ -191,20 +195,23 @@ def select_variant(
 
     proposal = copy.deepcopy(job.proposal or {})
     content = chosen.content or {}
-    beat = _beat_index(job, artifact)
+    beat = _image_target(job, artifact)
     if artifact == ARTIFACT_ARC_TEXT:
         proposal["story_arc"] = content.get("story_arc")
         proposal["grounding"] = content.get("grounding")
         # Beat art belongs to the draft that described its scenes — selecting
         # a different text variant restores THAT draft's images (none, for a
-        # fresh regen: its scenes have never been rendered).
+        # fresh regen: its scenes have never been rendered). Hand edits belong
+        # to their draft too: variant 0 carries the couple's, a fresh variant
+        # carries none.
         proposal["beat_images"] = content.get("beat_images") or {}
+        proposal["user_edited"] = content.get("user_edited") or []
     elif beat is not None:
         images = dict(proposal.get("beat_images") or {})
         if chosen.image_url:
-            images[str(beat)] = chosen.image_url
+            images[beat] = chosen.image_url
         else:
-            images.pop(str(beat), None)
+            images.pop(beat, None)
         proposal["beat_images"] = images
     else:
         proposal["glyph"] = content
@@ -244,7 +251,7 @@ def _regen_arc_text(db, settings, job, steer, text_model):
     user_turn = (
         f"<submission>\n{state.get('submission', '')}\n</submission>\n"
         f"<facts>\n{_dump(state.get('facts') or {})}\n</facts>\n"
-        f"<style>\n{tone}\n</style>"
+        f"<tone>\n{tone}\n</tone>"
     )
     if steer:  # user-turn data only — never in the system prompt
         user_turn += f"\n<steer>\n{steer}\n</steer>"
@@ -260,45 +267,31 @@ def _regen_arc_text(db, settings, job, steer, text_model):
         user=f"SOURCE:\n{state.get('submission', '')}\n\nDRAFT:\n{_dump(draft.model_dump())}",
         schema=GroundingReport, ledger_kind="ground",
     )
-    # beat_images deliberately empty: this draft's scenes have never been
-    # rendered (selecting the variant must not pair it with stale art).
+    # beat_images / user_edited deliberately empty: this draft's scenes have
+    # never been rendered and nobody has hand-edited it (selecting the variant
+    # must not pair it with stale art, or claim edits it doesn't contain).
     return {
         "story_arc": draft.model_dump(),
         "grounding": report.model_dump(),
         "beat_images": {},
+        "user_edited": [],
     }, meta
 
 
-def _regen_beat_image(db, settings, job, beat: int, steer, media_model):
-    """Re-render ONE beat's art from the current draft's scene description.
-    Mirrors the pipeline's images step: ledgered per image, metered against
-    the wedding's storage, bytes tracked in job.state for the sweeps."""
-    proposal = job.proposal or {}
-    beats = (proposal.get("story_arc") or {}).get("beats") or []
-    prompt = (beats[beat].get("image_prompt") or "").strip()
-    if not prompt:
-        raise HTTPException(status_code=422, detail="This beat has no scene to illustrate")
-    if steer:  # untrusted, appended to the scene text — never a system prompt
-        prompt += f". Adjustment requested by the couple: {steer}"
-
+def _regen_beat_image(db, settings, job, target: str, steer, media_model):
+    """Re-render ONE panel's art from the current draft's scene description,
+    in the job's current illustration style — this is the "iterate the style on
+    beat 0" loop of the staged wizard. Same accounting as /illustrate
+    (app/ai/images.py: ledgered per image, metered against the wedding's
+    storage, bytes tracked for the sweeps)."""
+    scenes = dict(illustration_targets(job.proposal))
+    options = (job.state or {}).get("options") or {}
+    # The steer is untrusted: it rides the prompt as data, and the guardrail
+    # sentences are appended after it (compose_image_prompt).
+    prompt = compose_image_prompt(scenes[target], options, steer=steer)
     media = media_model or get_media_model(settings)
-    data, usage = media.generate_image(prompt)  # ProviderRefusal/Error → caller maps
-    record_usage(db, wedding_id=job.wedding_id, job_id=job.id,
-                 kind="image", usage=usage, images=1)
-    mime = sniff_image_mime(data)
-    try:
-        blob, ext = prepare_image(data, mime)
-    except UploadError as exc:
-        raise ProviderError(f"the generated image wasn't usable ({exc}) — try again")
-    check_storage(db, job.wedding, adding_bytes=len(blob))
-    url = store_image(settings, job.wedding.slug, blob, ext, mime)
-    job.wedding.storage_bytes_used = (job.wedding.storage_bytes_used or 0) + len(blob)
-    state = dict(job.state or {})
-    tracked = dict(state.get("image_bytes") or {})
-    tracked[url] = len(blob)
-    state["image_bytes"] = tracked
-    job.state = state  # reassign: JSON columns don't track mutation
-    return url, {"provider": usage.provider, "model": usage.model}
+    url = render_image(db, settings, job, prompt, media)  # refusal/error → caller maps
+    return url, {"provider": "google", "model": settings.gemini_image_model}
 
 
 def _regen_glyph(db, settings, job, steer, text_model):
@@ -323,9 +316,9 @@ def _original_variant(job: AiJob, artifact: str) -> AiVariant | None:
     is nothing to preserve (a beat that never had art)."""
     proposal = job.proposal or {}
     generation = (job.state or {}).get("generation") or {}
-    beat = _beat_index(job, artifact)
+    beat = _image_target(job, artifact)
     if beat is not None:
-        url = (proposal.get("beat_images") or {}).get(str(beat))
+        url = (proposal.get("beat_images") or {}).get(beat)
         if not url:
             return None
         return AiVariant(
@@ -342,6 +335,7 @@ def _original_variant(job: AiJob, artifact: str) -> AiVariant | None:
             "story_arc": proposal.get("story_arc"),
             "grounding": proposal.get("grounding"),
             "beat_images": proposal.get("beat_images") or {},
+            "user_edited": proposal.get("user_edited") or [],
         }
         gen = generation.get("draft") or {}
     else:
