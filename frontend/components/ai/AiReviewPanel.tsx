@@ -304,6 +304,8 @@ export default function AiReviewPanel({
                 onSpend={loadCredits}
                 disabled={busy !== null}
                 imagesAvailable={credits?.images_available ?? false}
+                likenessAvailable={credits?.likeness_available ?? false}
+                maxLikenessReferences={credits?.max_likeness_references ?? 0}
               />
             </Box>
           </Stack>

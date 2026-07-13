@@ -741,10 +741,30 @@ Built as planned, with three notes worth carrying:
 - Tier assignment stays 100% deterministic in code. The questions improve
   the raw lines; they never let the model near a tier.
 
-### 8.5d — Likeness (couple photos → stylised illustrations of them)
+### 8.5d — Likeness (couple photos → stylised illustrations of them) — **BUILT 2026-07-14**
 
 Decided: build now, with a deliberately minimal consent gate; full legal
 framing is DEFERRED and tracked as an open risk (below).
+
+Built as planned, with four notes worth carrying:
+- **Consent is a property of the FILE, not of a session.** It rides the upload
+  request that carries the photo and lands on the row (`consent_at` /
+  `consent_by`, migration `d0e1f2a3b4c5`). `consented_references()` is the one
+  predicate every caller goes through, so a row without it is not "a photo you
+  may not use" — it is simply not a reference, and no downstream path can pass
+  it to the image model by accident.
+- **A photo of a face is not source material.** Reference photos are skipped by
+  the transcribe step: captioning them would push a description of the couple's
+  bodies into the extraction prompt for no benefit to the facts. They reach
+  exactly one call (`generate_image`) and nothing else.
+- **The style rule is enforced twice, differently.** `check_style` refuses
+  (422, with the way out named) where the couple *pick* photoreal; `resolve_style`
+  silently downgrades to the default where the prompt is *composed*. The second
+  is the one that holds if a future path forgets the first.
+- **A rejected upload is a worse way to learn the rule than a disabled button** —
+  but a disabled MUI `Button component="label"` does NOT disable the file input
+  inside it, so the client's consent assertion is gated in the handler and on the
+  input as well (see LEARNINGS; the browser smoke caught this).
 
 - Reference photos are a distinct upload role with a required **generic
   consent checkbox** ("photos of us; store and process to create stylised
@@ -756,7 +776,13 @@ framing is DEFERRED and tracked as an open risk (below).
 - Behind `ai_likeness_enabled` (default false) so it can be switched off
   per plan/platform instantly. SynthID watermark disclosed in the UI.
 - Seam: reference image(s) flow into the existing `GeminiMedia.generate_image`
-  call; consent + entitlement checked in the illustrate endpoints.
+  call; consent + entitlement checked in the illustrate endpoints. Revoking the
+  entitlement mid-run stops the illustration with a **403 that names the way
+  out** (remove the photos) rather than quietly drawing strangers into a panel
+  the couple already paid a credit for.
+- The photos never outlive the run: `POST …/references []` deletes them, and so
+  do cancel, expire, apply and the reap/purge sweeps — row and stored object
+  together.
 
 ### 8.5e — Theme presets (not AI, same release train)
 

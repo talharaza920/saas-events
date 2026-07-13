@@ -18,6 +18,7 @@ import Typography from "@mui/material/Typography";
 import { aiApi, type AiArtifact, type AiJobAdmin, type AiStyleOption } from "@/lib/adminApi";
 
 import { SteerBox, VariantStrip } from "./AiVariants";
+import LikenessPhotos from "./LikenessPhotos";
 
 interface Beat {
   text: string;
@@ -82,6 +83,8 @@ export default function StoryDraft({
   onSpend,
   disabled,
   imagesAvailable,
+  likenessAvailable,
+  maxLikenessReferences = 0,
 }: {
   job: AiJobAdmin;
   onJob: (j: AiJobAdmin) => void;
@@ -91,6 +94,10 @@ export default function StoryDraft({
   /** False when this deployment can't illustrate — then we say so rather than
    *  offering a button that can only fail (server: settings.ai_images_available). */
   imagesAvailable?: boolean;
+  /** 8.5d: may this wedding put the COUPLE in the illustrations? Needs the
+   *  plan's opt-in as well as image generation (server: likeness_available). */
+  likenessAvailable?: boolean;
+  maxLikenessReferences?: number;
 }) {
   const proposal = rec(job.proposal);
   const serverArc = useMemo(() => readArc(job), [job]);
@@ -100,6 +107,9 @@ export default function StoryDraft({
     ? proposal.user_edited.map(String)
     : [];
   const style = rec(proposal.style);
+  // With photos of the couple attached, the photographic look is refused
+  // server-side — so the chip is disabled rather than offered and rejected.
+  const hasLikeness = Number(rec(proposal.likeness).references ?? 0) > 0;
   const grounding = rec(proposal.grounding);
   const claims: Claim[] = (Array.isArray(grounding.unsupported) ? grounding.unsupported : []).map(
     (c) => rec(c) as Claim,
@@ -414,18 +424,34 @@ export default function StoryDraft({
             as text, and you can add your own pictures from the Story tab.
           </Alert>
         )}
+        {likenessAvailable && imagesAvailable && (
+          <LikenessPhotos
+            job={job}
+            onJob={onJob}
+            disabled={locked}
+            max={maxLikenessReferences}
+          />
+        )}
         <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
-          {styles.map((s) => (
-            <Chip
-              key={s.key}
-              label={s.label}
-              size="small"
-              color={style.preset === s.key ? "primary" : "default"}
-              variant={style.preset === s.key ? "filled" : "outlined"}
-              disabled={locked}
-              onClick={() => pickStyle(s.key)}
-            />
-          ))}
+          {styles.map((s) => {
+            const blocked = hasLikeness && s.likeness_blocked;
+            return (
+              <Chip
+                key={s.key}
+                label={s.label}
+                size="small"
+                color={style.preset === s.key ? "primary" : "default"}
+                variant={style.preset === s.key ? "filled" : "outlined"}
+                disabled={locked || blocked}
+                title={
+                  blocked
+                    ? "Not available for pictures of real people — remove your photos to use it"
+                    : undefined
+                }
+                onClick={() => !blocked && pickStyle(s.key)}
+              />
+            );
+          })}
         </Stack>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" } }}>
           <TextField

@@ -262,7 +262,8 @@ export const aiApi = {
   createInput: (text: string) =>
     req<AiInputRef>("/ai/inputs", { method: "POST", body: JSON.stringify({ kind: "text", text }) }),
   // A media submission (voice note / photo / PDF) — multipart, like uploadImage.
-  uploadInput: (file: File) => uploadAiInput(file),
+  uploadInput: (file: File, opts?: { role?: "source" | "reference"; consent?: boolean }) =>
+    uploadAiInput(file, opts),
   // The Idempotency-Key makes a double-click return the same job instead of a 409.
   createJob: (kind: AiJobKind, inputIds: string[], options: Json = {}, idempotencyKey?: string) =>
     req<AiJobAdmin>("/ai/jobs", {
@@ -296,6 +297,13 @@ export const aiApi = {
       body: JSON.stringify({ targets: targets ?? null }),
     }),
   styles: () => req<AiStyleOption[]>("/ai/styles"),
+  // 8.5d: the consented photos this run should draw the couple from. A SET —
+  // posting [] detaches and deletes them, which is how they change their mind.
+  setReferences: (id: string, inputIds: string[]) =>
+    req<AiJobAdmin>(`/ai/jobs/${id}/references`, {
+      method: "POST",
+      body: JSON.stringify({ input_ids: inputIds }),
+    }),
   // 8.5c: answer a guest run's open questions. Free, and it buys exactly ONE
   // more extraction round — the server enforces both.
   answerQuestions: (id: string, answers: { index: number; answer: string }[]) =>
@@ -362,12 +370,24 @@ async function uploadImage(file: File): Promise<string> {
   return ((await res.json()) as { url: string }).url;
 }
 
-/** Upload one AI-wizard media submission (audio/image/PDF, max 10 MB). */
-async function uploadAiInput(file: File): Promise<AiInputRef> {
+/**
+ * Upload one AI-wizard media submission (audio/image/PDF, max 10 MB).
+ *
+ * `role: "reference"` is a photo OF THE COUPLE (8.5d) and requires `consent` —
+ * the server records who ticked the box and when, and refuses the upload
+ * without it. Consent travels WITH the file, on the request that carries it;
+ * there is no "consent later" and no way to consent on someone's behalf.
+ */
+async function uploadAiInput(
+  file: File,
+  opts: { role?: "source" | "reference"; consent?: boolean } = {},
+): Promise<AiInputRef> {
   const token = await getToken();
   if (!token) throw new AdminAuthError("Not signed in");
   const form = new FormData();
   form.append("file", file);
+  if (opts.role) form.append("role", opts.role);
+  if (opts.consent) form.append("consent", "true");
   const res = await fetch(`${adminBase()}/ai/inputs/upload`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },

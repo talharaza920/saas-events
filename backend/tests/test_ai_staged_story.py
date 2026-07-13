@@ -104,7 +104,7 @@ class FakeMedia:
     def transcribe(self, data: bytes, mime: str):  # pragma: no cover - text inputs only
         raise AssertionError("no media inputs in these tests")
 
-    def generate_image(self, prompt: str):
+    def generate_image(self, prompt: str, references=None):
         self.image_calls.append(prompt)
         if any(m in prompt for m in self.refuse_image_prompts):
             raise ProviderRefusal("content filter")
@@ -338,7 +338,7 @@ def test_the_couples_path_confirm_then_first_image_then_the_rest(http):
     base = f"/api/w/{w.slug}/admin/ai/jobs/{job_id}"
 
     styles = client.get(f"/api/w/{w.slug}/admin/ai/styles", headers=user_auth(OWNER)).json()
-    assert {"key": "storybook", "label": "Storybook"} in styles
+    assert {"key": "storybook", "label": "Storybook", "likeness_blocked": False} in styles
 
     # 1. Fix a line and pick a style — free, no provider call.
     job = client.get(base, headers=user_auth(OWNER)).json()

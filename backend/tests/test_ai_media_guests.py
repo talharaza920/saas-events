@@ -104,6 +104,9 @@ class FakeMedia:
     refuse_transcribe: bool = False
     refuse_image_prompts: tuple[str, ...] = ()
     image_calls: list = field(default_factory=list)
+    # What likeness references (8.5d) rode each image call — [] on every call
+    # unless the couple attached consented photos of themselves.
+    reference_calls: list = field(default_factory=list)
 
     def transcribe(self, data: bytes, mime: str):
         if self.refuse_transcribe:
@@ -113,8 +116,9 @@ class FakeMedia:
             input_tokens=1000, output_tokens=100, request_id="g-1",
         )
 
-    def generate_image(self, prompt: str):
+    def generate_image(self, prompt: str, references=None):
         self.image_calls.append(prompt)
+        self.reference_calls.append(list(references or []))
         if any(marker in prompt for marker in self.refuse_image_prompts):
             raise ProviderRefusal("content filter")
         return b"fake-png-bytes-" + str(len(self.image_calls)).encode(), Usage(

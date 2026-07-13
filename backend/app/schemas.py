@@ -1168,6 +1168,19 @@ class AiIllustrateRequest(BaseModel):
 class AiStyleOption(BaseModel):
     key: str
     label: str
+    # True = this look is refused while photos of the couple are attached (8.5d:
+    # no photoreal renderings of real people). The UI greys the chip instead of
+    # offering a choice the server will reject.
+    likeness_blocked: bool = False
+
+
+class AiReferencesRequest(BaseModel):
+    """The consented photos of the couple this run should draw them from (8.5d).
+    A SET: an empty list removes (and deletes) the ones attached — the way back
+    out of a likeness."""
+
+    model_config = ConfigDict(extra="forbid")
+    input_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
 class AiGuestAnswer(BaseModel):
@@ -1237,6 +1250,11 @@ class AiCreditsInfo(BaseModel):
     # dev painter)? False = the review UI keeps the story text-only and says so,
     # instead of offering a paid button that could only fail.
     images_available: bool = False
+    # Can this wedding put the COUPLE in those illustrations (8.5d)? Needs both
+    # the plan's `ai_likeness_enabled` and image generation — same rule as ever:
+    # never render a control that can only fail.
+    likeness_available: bool = False
+    max_likeness_references: int = 0
 
 
 class AiSettingsPayload(BaseModel):

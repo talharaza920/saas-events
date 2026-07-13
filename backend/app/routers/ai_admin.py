@@ -2,12 +2,14 @@
 `/api/w/{wedding_slug}/admin/ai/*`.
 
   POST …/inputs               one pasted-text submission
-  POST …/inputs/upload        one media submission (image/audio/pdf, multipart)
+  POST …/inputs/upload        one media submission (image/audio/pdf, multipart);
+                              role=reference + consent = a photo OF the couple (8.5d)
   POST …/jobs                 {kind, input_ids, options}  [Idempotency-Key]
   GET  …/jobs, …/jobs/{id}    status, step, proposal, variants
   POST …/jobs/{id}/advance    drives exactly ONE pipeline step; idempotent per step
   POST …/jobs/{id}/answers    {answers} → clears up an ambiguous guest list; ONE re-extract
   PATCH …/jobs/{id}/proposal  {story_arc?, style_preset?, style_note?} → free human edits
+  POST …/jobs/{id}/references {input_ids} → the consented photos to draw them from
   POST …/jobs/{id}/illustrate {targets?} → renders panels; 1 credit each
   POST …/jobs/{id}/regenerate {artifact, steer?} → a new variant, old ones kept
   POST …/jobs/{id}/select     {artifact, variant_id} → the keeper, into the proposal
@@ -25,7 +27,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -35,6 +37,12 @@ from app.ai.credits import arc_generations_used, credits_remaining
 from app.ai.edit import edit_proposal
 from app.ai.images import illustrate
 from app.ai.jobs import advance_job, cancel_job, create_job
+from app.ai.likeness import (
+    BLOCKED_LIKENESS_STYLES,
+    REFERENCE_ROLE,
+    SOURCE_ROLE,
+    set_references,
+)
 from app.ai.media import GeminiMedia, get_media_model
 from app.ai.providers import get_text_model
 from app.ai.runtime import effective_settings
@@ -47,6 +55,7 @@ from app.db import get_db
 from app.entitlements import effective_entitlements, require_feature
 from app.models import AiInput, AiJob, AiVariant, Wedding
 from app.storage import UploadError, store_ai_input, validate_ai_media
+from app.timeutil import utcnow
 from app.schemas import (
     AiAdvanceRequest,
     AiAnswersRequest,
@@ -59,6 +68,7 @@ from app.schemas import (
     AiJobAdmin,
     AiJobCreate,
     AiProposalEdit,
+    AiReferencesRequest,
     AiRegenerateRequest,
     AiSelectRequest,
     AiStyleOption,
@@ -172,6 +182,8 @@ def create_input(
 @router.post("/inputs/upload", response_model=AiInputRef, status_code=201)
 async def upload_ai_input(
     file: UploadFile = File(...),
+    role: str = Form(default=SOURCE_ROLE),
+    consent: bool = Form(default=False),
     ctx: WeddingCtx = Depends(editor_ctx),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_ai_settings_effective),
@@ -183,19 +195,49 @@ async def upload_ai_input(
     The Gemini kinds are refused with a clear message when that seam isn't
     configured — better here than a run that fails at its very first step. A
     SHEET is not one of them: it's parsed in code (app/ai/sheets.py), so it
-    stays available with every provider switched off."""
+    stays available with every provider switched off.
+
+    `role="reference"` is a photo OF THE COUPLE (8.5d), which is a different
+    thing from material about their wedding: it needs the likeness entitlement,
+    it must be an image, and it needs consent — which is recorded on the row,
+    with who and when, at the moment the file arrives. Consent asserted after
+    the fact is not consent, so this is the only place it can be given."""
     require_feature(db, ctx.wedding, "ai_enabled")
     _check_unclaimed_cap(db, ctx.wedding)
+    if role not in (SOURCE_ROLE, REFERENCE_ROLE):
+        raise HTTPException(status_code=422, detail=f"Unknown upload role {role!r}")
     data = await file.read()
     try:
         kind, ext = validate_ai_media(file.content_type, len(data))
     except UploadError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if kind != "sheet" and not settings.ai_transcribe_enabled:
+
+    if role == REFERENCE_ROLE:
+        require_feature(db, ctx.wedding, "ai_likeness_enabled")
+        if kind != "image":
+            raise HTTPException(
+                status_code=422, detail="A photo of you needs to be an image (PNG, JPG or WebP)"
+            )
+        if not settings.ai_images_available:
+            raise HTTPException(
+                status_code=422,
+                detail="Illustrations aren't available right now, so there's nothing to put you in",
+            )
+        if not consent:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "We can't use photos of you without your say-so — tick the box to "
+                    "confirm these are photos of you and that we may store and process "
+                    "them to create stylised illustrations"
+                ),
+            )
+    elif kind != "sheet" and not settings.ai_transcribe_enabled:
         raise HTTPException(
             status_code=422,
             detail="Voice notes, photos and PDFs aren't available yet — paste text instead",
         )
+
     try:
         url = store_ai_input(settings, ctx.wedding.slug, data, ext,
                              file.content_type or "application/octet-stream")
@@ -204,10 +246,13 @@ async def upload_ai_input(
     inp = AiInput(
         wedding_id=ctx.wedding.id,
         kind=kind,
+        role=role,
         storage_url=url,
         mime=(file.content_type or "").lower(),
         bytes=len(data),
         created_by=ctx.user.sub,
+        consent_at=utcnow() if role == REFERENCE_ROLE else None,
+        consent_by=ctx.user.sub if role == REFERENCE_ROLE else None,
     )
     db.add(inp)
     db.commit()
@@ -377,13 +422,37 @@ def answer_ai_questions(
     return _job_admin(db, job)
 
 
+@router.post("/jobs/{job_id}/references", response_model=AiJobAdmin)
+def set_ai_references(
+    job_id: UUID,
+    payload: AiReferencesRequest,
+    ctx: WeddingCtx = Depends(editor_ctx),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_ai_settings_effective),
+) -> AiJobAdmin:
+    """Put the couple THEMSELVES in the illustrations (8.5d): the consented
+    photos this run draws them from. A set — posting an empty list detaches and
+    deletes the ones attached, which is how they change their mind. Free; the
+    photos only cost anything when a panel is actually rendered."""
+    job = _get_job(db, ctx.wedding, job_id)
+    job = set_references(db, settings, job, input_ids=payload.input_ids, user=ctx.user)
+    return _job_admin(db, job)
+
+
 @router.get("/styles", response_model=list[AiStyleOption])
 def ai_styles(ctx: WeddingCtx = Depends(member_ctx)) -> list[AiStyleOption]:
     """The illustration-style chips. Server-owned: the couple picks a key, the
     platform owns the sentence it stands for (app/ai/styles.py). Rides
     require_wedding like every route here — the authz matrix has no holes in
     it, not even for static data."""
-    return [AiStyleOption(key=s.key, label=s.label) for s in STYLE_PRESETS.values()]
+    return [
+        AiStyleOption(
+            key=s.key,
+            label=s.label,
+            likeness_blocked=s.key in BLOCKED_LIKENESS_STYLES,
+        )
+        for s in STYLE_PRESETS.values()
+    ]
 
 
 @router.post("/jobs/{job_id}/apply", response_model=AiApplyResult)
@@ -427,10 +496,16 @@ def ai_credits(
         v = ents.get(key, 0)
         return v if isinstance(v, int) and not isinstance(v, bool) else 0
 
+    # Likeness needs BOTH the plan's opt-in and a process that can actually
+    # generate images — a "add photos of us" control that can't render anything
+    # is a promise we can't keep.
+    likeness = ents.get("ai_likeness_enabled") is True and settings.ai_images_available
     return AiCreditsInfo(
         remaining=credits_remaining(db, ctx.wedding),
         included=_int("ai_credits_included"),
         arc_generations_used=arc_generations_used(db, ctx.wedding),
         arc_generations_included=_int("ai_arc_generations_included"),
         images_available=settings.ai_images_available,
+        likeness_available=likeness,
+        max_likeness_references=_int("ai_max_likeness_references") if likeness else 0,
     )

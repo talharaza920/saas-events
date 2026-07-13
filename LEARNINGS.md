@@ -463,3 +463,34 @@ Gemini kinds, and `transcribe_input` returns `usage=None` for a sheet. Result: a
 couple can hand the assistant a spreadsheet with the whole AI seam switched off,
 and the browser smoke exercises the path for free. The general rule: gate on
 "does this need the provider?", never on "did this arrive as a file?".
+
+## A disabled MUI `Button component="label"` does not disable the file input
+The consent gate on 8.5d's likeness upload was the button's `disabled` prop — and
+MUI renders `component="label"` as a `<label>`, so "disabled" means a
+`Mui-disabled` class and `pointer-events: none`. The hidden `<input type="file">`
+inside it stays enabled, and a programmatic `uploadFile` (the browser smoke did
+exactly this) sails straight through — at which point the client would have
+POSTed `consent: true` for a box nobody ticked. The gate now lives in three
+places that all have to agree: `disabled` on the input itself, an early return in
+the upload handler, and the server's 422. **Rule: a consent assertion is only
+ever sent from a code path that can see the consent state — never from a handler
+that assumes the UI prevented it.** The smoke caught this because it drives the
+DOM rather than clicking a picture of it.
+
+## A photo of a face is not source material
+Likeness references (8.5d) ride the job like any other `ai_input`, but they are
+skipped by the transcribe step (`role="reference"`). Captioning them would put a
+description of the couple's bodies into the extraction prompt — no benefit to the
+facts, real cost to the couple's privacy — and it would then flow into the draft.
+The `role` split is what keeps "material to READ" and "photos to DRAW FROM" from
+converging: reference photos reach exactly one call (`generate_image`) and
+nothing else.
+
+## Two gates for one rule: refuse where it's chosen, degrade where it's rendered
+Photoreal + a real person is the combination 8.5d won't produce. `check_style`
+raises 422 where the couple *pick* the style (a clear message with a way out),
+and `resolve_style`/`safe_style_key` silently downgrade to the default where the
+prompt is *composed*. The second is not redundant: a proposal can carry a stale
+style from before the photos were attached, and any future code path that sets a
+style without going through the endpoint would otherwise render the one image the
+feature exists to not render. Refuse at the boundary; degrade at the sharp end.

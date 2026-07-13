@@ -1,7 +1,8 @@
 /** Dev-only AI smoke (AI_WIZARD_PLAN, re-pointed at the 8.5b staged wizard):
  * drives the REAL UI through every AI entry point where it now lives — Details
  * tab (`details` run → apply → venue persisted), Story tab (the staged wizard:
- * text-only park → free hand edit → style → first image → the rest → apply),
+ * text-only park → free hand edit → style → 8.5d likeness consent + reference
+ * photo → first image → the rest → apply),
  * AI tab (mark → apply → "use as cover icon"), Guests tab (8.5c: one intake —
  * a spreadsheet read by the importer for free, a messy paste read by the model,
  * which asks about the line it can't read → answer → deterministic tiers), the
@@ -204,6 +205,58 @@ ok(
     edited.proposal.user_edited.includes("beats.0.text") &&
     edited.credits_held === heldBeforeEdit, // editing moves no money
 );
+
+// 8.5d — likeness: photos of the couple, behind a consent box they have to tick.
+// The gate under test is the file INPUT, not the label's CSS: MUI's disabled
+// Button-as-<label> only stops pointer events, so a script could otherwise hand
+// the input a file and have the client assert a consent nobody gave.
+const photoInputSel = 'input[type="file"][accept="image/png,image/jpeg,image/webp"]';
+ok(
+  "likeness: the upload is locked until the consent box is ticked",
+  await page.evaluate((sel) => document.querySelector(sel)?.disabled === true, photoInputSel),
+);
+
+const photo = resolve(OUT, "us.png");
+writeFileSync(
+  photo,
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  ),
+);
+await page.evaluate(() => {
+  const box = [...document.querySelectorAll('input[type="checkbox"]')].find((c) =>
+    c.closest("label")?.textContent.includes("These are photos of us"),
+  );
+  box?.click();
+});
+await sleep(400);
+const fileInput = await page.$(photoInputSel);
+await fileInput.uploadFile(photo);
+ok("likeness: a consented photo attaches to the run", await waitFor("1 photo of you attached"));
+const withLikeness = await api(`/api/w/alex-and-sam/admin/ai/jobs/${jobId}`);
+ok(
+  "likeness: the server records the reference against the job",
+  withLikeness.proposal.likeness?.references === 1,
+  JSON.stringify(withLikeness.proposal.likeness),
+);
+// Stylised only: the photographic look is not on offer for pictures of real people.
+ok(
+  "likeness: the photographic style is withdrawn while photos are attached",
+  await page.evaluate(() => {
+    const chip = [...document.querySelectorAll(".MuiChip-root")].find(
+      (c) => c.textContent.trim() === "Photographic",
+    );
+    return Boolean(chip) && chip.classList.contains("Mui-disabled");
+  }),
+);
+await page.evaluate(() => {
+  [...document.querySelectorAll("h6, .MuiTypography-subtitle2")]
+    .find((e) => e.textContent.includes("Put the two of you in the pictures"))
+    ?.scrollIntoView({ block: "center" });
+});
+await sleep(400);
+await page.screenshot({ path: `${OUT}/ai-story-likeness.png` });
 
 // One image, in the chosen style, then the rest — each an explicit click.
 await clickText("button", "Illustrate the first scene");

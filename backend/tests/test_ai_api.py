@@ -451,8 +451,11 @@ def test_credits_endpoint(db_session, client):
         "remaining": 9, "included": 10,
         "arc_generations_used": 0, "arc_generations_included": 1,
         # No Gemini key in the test settings → the UI is told not to offer the
-        # (paid, and here impossible) illustrate button at all.
+        # (paid, and here impossible) illustrate button at all — and likeness,
+        # which is illustration with the couple in it, is off with it.
         "images_available": False,
+        "likeness_available": False,
+        "max_likeness_references": 0,
     }
 
 

@@ -838,6 +838,12 @@ export interface paths {
          *     configured — better here than a run that fails at its very first step. A
          *     SHEET is not one of them: it's parsed in code (app/ai/sheets.py), so it
          *     stays available with every provider switched off.
+         *
+         *     `role="reference"` is a photo OF THE COUPLE (8.5d), which is a different
+         *     thing from material about their wedding: it needs the likeness entitlement,
+         *     it must be an image, and it needs consent — which is recorded on the row,
+         *     with who and when, at the moment the file arrives. Consent asserted after
+         *     the fact is not consent, so this is the only place it can be given.
          */
         post: operations["upload_ai_input_api_w__wedding_slug__admin_ai_inputs_upload_post"];
         delete?: never;
@@ -995,6 +1001,29 @@ export interface paths {
          *     cap is what bounds the spend.
          */
         post: operations["answer_ai_questions_api_w__wedding_slug__admin_ai_jobs__job_id__answers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/ai/jobs/{job_id}/references": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Ai References
+         * @description Put the couple THEMSELVES in the illustrations (8.5d): the consented
+         *     photos this run draws them from. A set — posting an empty list detaches and
+         *     deletes the ones attached, which is how they change their mind. Free; the
+         *     photos only cost anything when a panel is actually rendered.
+         */
+        post: operations["set_ai_references_api_w__wedding_slug__admin_ai_jobs__job_id__references_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1743,6 +1772,16 @@ export interface components {
              * @default false
              */
             images_available: boolean;
+            /**
+             * Likeness Available
+             * @default false
+             */
+            likeness_available: boolean;
+            /**
+             * Max Likeness References
+             * @default 0
+             */
+            max_likeness_references: number;
         };
         /**
          * AiGuestAnswer
@@ -1942,6 +1981,16 @@ export interface components {
             /** Style Note */
             style_note?: string | null;
         };
+        /**
+         * AiReferencesRequest
+         * @description The consented photos of the couple this run should draw them from (8.5d).
+         *     A SET: an empty list removes (and deletes) the ones attached — the way back
+         *     out of a likeness.
+         */
+        AiReferencesRequest: {
+            /** Input Ids */
+            input_ids?: string[];
+        };
         /** AiRegenerateRequest */
         AiRegenerateRequest: {
             /** Artifact */
@@ -2054,6 +2103,11 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+            /**
+             * Likeness Blocked
+             * @default false
+             */
+            likeness_blocked: boolean;
         };
         /** AiUsageDay */
         AiUsageDay: {
@@ -2251,6 +2305,16 @@ export interface components {
              * Format: binary
              */
             file: string;
+            /**
+             * Role
+             * @default source
+             */
+            role: string;
+            /**
+             * Consent
+             * @default false
+             */
+            consent: boolean;
         };
         /** Body_upload_image_api_w__wedding_slug__admin_upload_post */
         Body_upload_image_api_w__wedding_slug__admin_upload_post: {
@@ -5840,6 +5904,44 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AiAnswersRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_ai_references_api_w__wedding_slug__admin_ai_jobs__job_id__references_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiReferencesRequest"];
             };
         };
         responses: {

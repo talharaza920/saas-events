@@ -95,6 +95,12 @@ for **local SQLite** (`sqlite:///./dev.db`); delete it to hit **Supabase**.
   a parser (`app/ai/sheets.py` / the deterministic `/import`) — no provider, no
   credits, works with `AI_LIVE_CALLS=false`. Gate features on "does this need the
   provider?", never on "did this arrive as a file?".
+- **Likeness photos are the one input with a consent contract** (8.5d,
+  `app/ai/likeness.py`, off by default via `ai_likeness_enabled`). Consent rides
+  the upload that carries the photo and is recorded on the row; a photo without it
+  is not a reference at all. A `role="reference"` input is never transcribed —
+  it reaches `generate_image` and nothing else — and photoreal styles are refused
+  whenever one is attached. Ships ahead of its legal framing; don't widen it.
 - **Env is only the AI bootstrap.** Provider/model/effort and every prompt are
   editable in the platform console (`/platform` → AI), stored in the DB and
   resolved by `ai/runtime.effective_settings()` — env supplies the default and

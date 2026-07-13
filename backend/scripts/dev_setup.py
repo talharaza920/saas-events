@@ -75,7 +75,15 @@ def main() -> None:
                 name="Local dev",
                 description="Seeded by dev_setup — AI wizard enabled for offline dev",
                 is_default=True,
-                entitlements={"ai_enabled": True, "ai_credits_included": 50},
+                entitlements={
+                    "ai_enabled": True,
+                    "ai_credits_included": 50,
+                    # 8.5d likeness: on locally so the consent + reference flow is
+                    # exercisable offline (with AI_FAKE_IMAGES the painter draws a
+                    # placeholder and no photo leaves the process). Production
+                    # default stays FALSE — it ships ahead of its legal framing.
+                    "ai_likeness_enabled": True,
+                },
             ))
         db.commit()
     finally:

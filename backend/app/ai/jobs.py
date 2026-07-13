@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.credits import compute_hold, refund_hold
 from app.ai.ledger import cost_usd_today, record_usage
+from app.ai.likeness import REFERENCE_ROLE, consented_references
 from app.ai.media import (
     GeminiMedia,
     MAX_TRANSCRIPT_CHARS,
@@ -476,9 +477,16 @@ def _generate(
 def _step_transcribe(db, settings, job, state, media_model) -> None:
     """Media → text (no text LLM involved; media kinds go through the Gemini
     seam and their calls are ledgered). The joined, bounded transcript is the
-    ONLY form of the submission any later step sees."""
+    ONLY form of the submission any later step sees.
+
+    Likeness references (8.5d) are NOT source material and are skipped here: a
+    photo of the couple's faces has nothing to say about their venue or their
+    story, and captioning it would put a description of their bodies into a
+    prompt for no benefit at all. It only ever goes to the image model."""
     inputs = db.execute(
-        select(AiInput).where(AiInput.job_id == job.id).order_by(AiInput.created_at)
+        select(AiInput).where(
+            AiInput.job_id == job.id, AiInput.role != REFERENCE_ROLE
+        ).order_by(AiInput.created_at)
     ).scalars().all()
     parts = []
     for inp in inputs:
@@ -632,10 +640,15 @@ def build_proposal(job: AiJob) -> dict:
         proposal["beat_images"] = {}
         proposal["images_refused"] = {}
         proposal["user_edited"] = []
+        references = consented_references(job.inputs)
         proposal["style"] = {
-            "preset": resolve_style(options).key,
+            "preset": resolve_style(options, has_references=bool(references)).key,
             "note": options.get("style_note") or None,
         }
+        # Likeness (8.5d): how many consented photos of the couple this run will
+        # draw them from. Zero is the pre-8.5d world — faceless figures — and is
+        # what every run starts as.
+        proposal["likeness"] = {"references": len(references)}
     if job.kind == AiJobKind.GUESTS:
         proposal["guests"] = state.get("guests") or []
         proposal["guests_unresolved"] = state.get("guests_unresolved") or []

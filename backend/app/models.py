@@ -648,12 +648,22 @@ class AiInput(Base):
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("ai_jobs.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    kind: Mapped[str] = mapped_column(String(10))  # text | image | audio | pdf
+    kind: Mapped[str] = mapped_column(String(10))  # text | image | audio | pdf | sheet
+    # What this submission IS to the run (8.5d). `source` = material to read:
+    # transcribed, extracted, the basis of the draft. `reference` = a photo of
+    # the couple, handed ONLY to the image model as a likeness reference — never
+    # transcribed, never read for facts, and never used at all without consent.
+    role: Mapped[str] = mapped_column(String(10), default="source", server_default="source")
     # Inline for pasted text; a Storage URL for uploaded media (never both).
     text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     storage_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     mime: Mapped[str | None] = mapped_column(String(100), nullable=True)
     bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    # The consent that permits a `reference` photo, recorded where the photo is:
+    # who ticked the box and when. No consent = the file is never passed to the
+    # image model as a reference, whatever anything else says.
+    consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consent_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # What the transcribe step derived (media → text) — the only form the text
     # LLM ever sees.
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)

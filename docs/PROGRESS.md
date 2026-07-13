@@ -4,15 +4,17 @@ The resumable source of truth for platform work. Phases are defined in
 `SAAS_PLAN.md`. The predecessor build's milestone history (M1–M14) lives in
 that private repo, not here.
 
-_Last updated: 2026-07-13 (Phases 1–5 built & tested locally; review P0, P1
+_Last updated: 2026-07-14 (Phases 1–5 built & tested locally; review P0, P1
 AND P2 items all landed — see `REVIEW_BACKLOG.md`; P3 items are deliberate
 deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`): 8.0–8.4b + 8.1c + the
 8.5a funnel + the AI-config/console rework + **8.5b, the staged story wizard**
 (text first, free hand edits, images one deliberate click at a time) + **8.5c,
 guests** (one intake: a spreadsheet read by a parser for free, a messy list read
-by the model, which asks about lines it can't read instead of guessing) are all
-done locally. Next: 8.5d likeness, then 8.5e theme presets. Remaining: Anthropic
-key, the approval-queue decision, infra.)_
+by the model, which asks about lines it can't read instead of guessing) +
+**8.5d, likeness** (photos of the couple, behind a consent box, drawn as
+stylised illustrations and never as photographs of them) are all done locally.
+Next: 8.5e theme presets. Remaining: Anthropic key, the approval-queue decision,
+**the likeness legal framing before public launch**, infra.)_
 
 ## Where things stand (one paragraph)
 
@@ -458,19 +460,75 @@ there).
   answer, however phrased ("give them all a plus one!"), can reach an
   `invite_tier` — they come from the markers in the returned lines, in code.
   Tests: `tests/test_ai_guests_askback.py` (13).
+- [x] **8.5d Likeness — DONE (local) 2026-07-14.** The couple can be IN the
+  illustrations: they attach photos of themselves and the panels are drawn to
+  look like them — still illustrations, never photographs. It is the one feature
+  shipping ahead of its legal framing (RT, 2026-07-12), so the mechanism is
+  small, off by default (`ai_likeness_enabled`), and stoppable. **Consent is a
+  property of the file**: it rides the upload that carries the photo and lands on
+  the row (`role` / `consent_at` / `consent_by`, migration `d0e1f2a3b4c5`), and
+  `consented_references()` is the single predicate every caller passes through —
+  a row without consent isn't "a photo you may not use", it simply isn't a
+  reference, so no downstream path can hand it to the image model by accident
+  (an unconsented id at the references endpoint answers **404**: there is no
+  reply that reveals the photo exists). **A face is not source material** — a
+  `role="reference"` input is skipped by transcribe (captioning it would push a
+  description of the couple's bodies into the extraction prompt for nothing) and
+  reaches exactly one call, `GeminiMedia.generate_image`, where it swaps the
+  no-recognisable-people guardrail for the likeness direction. **Stylised only:**
+  the photographic preset is refused where the style is *chosen* (422, naming the
+  way out) and silently downgraded where the prompt is *composed* — the second
+  gate is the one that holds if a future path forgets the first. Losing the
+  entitlement mid-run stops the render with a 403 that says "remove your photos"
+  rather than quietly drawing strangers into a panel they'd have paid for. The
+  photos never outlive the run (`POST …/references []`, cancel, expire, apply and
+  the sweeps all delete row + stored object). SynthID disclosed in the UI. New:
+  `app/ai/likeness.py`, `POST …/ai/jobs/{id}/references`, `role`/`consent` on the
+  upload endpoint, `likeness_available` + `max_likeness_references` on credits,
+  `likeness_blocked` on the style chips, `components/ai/LikenessPhotos.tsx`.
+  Tests: `tests/test_ai_likeness.py` (14).
 - [ ] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
-  Phase 8.5; build order a→e; 8.5a + 8.5b + 8.5c DONE):** 8.5d likeness behind
-  `ai_likeness_enabled` (generic consent now, legal framing DEFERRED — open
-  risk) · 8.5e ~10 theme presets on the Theme tab, platform-owned: a console
-  Themes editor lets platform admins add/edit/reorder/disable/delete presets
-  (audited; applied weddings keep their copied tokens).
+  Phase 8.5; build order a→e; 8.5a–8.5d DONE):** 8.5e ~10 theme presets on the
+  Theme tab, platform-owned: a console Themes editor lets platform admins
+  add/edit/reorder/disable/delete presets (audited; applied weddings keep their
+  copied tokens).
 - [ ] **Blocked on RT:** Anthropic API key (Places + OpenAI + Gemini keys
   landed 2026-07-12, all live-verified; run the golden set on the Anthropic
   adapter once its key exists — it is the configured default text
   provider); decision on forcing AI-drafted weddings through the approval
   queue; likeness legal framing before public launch.
 
-## Test & verification status (2026-07-13, post-8.5c)
+## Test & verification status (2026-07-14, post-8.5d)
+
+- `pytest`: **434 passed, 1 skipped** (419 + `test_ai_likeness.py` 15). The new
+  suite pins what 8.5d promises: likeness is off in `DEFAULT_ENTITLEMENTS`; an
+  upload without the box ticked is refused AND leaves nothing stored; consent is
+  recorded on the row (who + when); an unconsented or cross-tenant photo id is a
+  404 at the references endpoint; consented photos ride the image call and swap
+  the faceless-figures guardrail for the likeness direction, while the text model
+  never sees them at all; a redo of a panel keeps the couple in it; the
+  photographic style is refused when photos are attached (both orderings) and
+  degrades rather than renders if it somehow gets stored; revoking the plan
+  mid-run stops the render (nothing charged) and the way out still works with the
+  feature off; the plan's photo cap holds even for references claimed straight at
+  job creation (the render path enforces it, not just the endpoint); and the
+  photos never outlive the run — cancel and apply delete row and stored object
+  while the illustration they produced survives.
+- Three bugs the self-review caught before commit, each now pinned by a test or
+  a comment: the "remove your photos" way out 403'd because removal required the
+  same entitlement that had just been revoked; reference photos claimed via
+  `create_job`'s `input_ids` bypassed `ai_max_likeness_references` (the endpoint
+  was the only gate); and hoisting the Gemini SDK type import above `_get_client`
+  turned "SDK not installed" from a friendly degrade-to-text-only into a 500.
+- AI smoke: **57/57** (53 + 4 for 8.5d), backend on `AI_LIVE_CALLS=false
+  AI_FAKE_IMAGES=true` — in a real browser: the upload is locked until the
+  consent box is ticked (tested on the file INPUT, not the label's CSS — see
+  LEARNINGS), a consented photo attaches, the server records it against the job,
+  and the Photographic chip is withdrawn while it's attached.
+- E2E smoke: **21/21**, unchanged by 8.5d. `tsc`/`eslint`/`next build` clean;
+  API types regenerated.
+
+## Test & verification status (2026-07-13, post-8.5c — kept for history)
 
 - `pytest`: **419 passed, 1 skipped** (406 + `test_ai_guests_askback.py` 13).
   The new suite pins what 8.5c promises: a spreadsheet is read by a parser and

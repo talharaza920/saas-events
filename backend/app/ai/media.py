@@ -113,15 +113,35 @@ class GeminiMedia:
         text = _text_or_refusal(response, model=model, what="transcription")
         return text, _usage(response, model)
 
-    def generate_image(self, prompt: str) -> tuple[bytes, Usage]:
+    def generate_image(
+        self, prompt: str, references: list[tuple[bytes, str]] | None = None
+    ) -> tuple[bytes, Usage]:
         """One composed image prompt → raster bytes (+ what the call cost).
         Raises ProviderRefusal when the content filter declines — the caller
-        leaves that panel text-only rather than failing the run."""
+        leaves that panel text-only rather than failing the run.
+
+        `references` are consented photos of the couple (8.5d): the model is
+        being asked to draw people who look like them. Everything that decides
+        WHETHER a photo may be here — consent, the entitlement, the block on
+        photoreal styles — is settled before the call, in app/ai/likeness.py;
+        this seam just carries the bytes.
+        """
         model = self._settings.gemini_image_model
+        # _get_client FIRST: it turns "the seam isn't configured" (no key, live
+        # calls off, SDK not installed) into a ProviderError the caller degrades
+        # on. Importing the SDK's types above it would raise a bare ImportError
+        # out of that same case instead.
+        client = self._get_client()
+        contents: list[Any] = [_IMAGE_FRAMING + prompt]
+        if references:
+            from google.genai import types as gtypes  # lazy, like the client
+
+            for data, mime in references:
+                contents.append(gtypes.Part.from_bytes(data=data, mime_type=mime))
         try:
-            response = self._get_client().models.generate_content(
+            response = client.models.generate_content(
                 model=model,
-                contents=_IMAGE_FRAMING + prompt,
+                contents=contents,
             )
         except ProviderError:
             raise
@@ -197,7 +217,9 @@ class FakePainter(GeminiMedia):
     from drawing a grey rectangle.
     """
 
-    def generate_image(self, prompt: str) -> tuple[bytes, Usage]:
+    def generate_image(
+        self, prompt: str, references: list[tuple[bytes, str]] | None = None
+    ) -> tuple[bytes, Usage]:
         from PIL import Image, ImageDraw  # lazy: Pillow is already a dep of storage
 
         seed = sum(prompt.encode()) % 360
@@ -205,7 +227,11 @@ class FakePainter(GeminiMedia):
         img = Image.new("RGB", (768, 512), hue)
         draw = ImageDraw.Draw(img)
         draw.rectangle((24, 24, 744, 488), outline=f"hsl({(seed + 40) % 360}, 40%, 45%)", width=6)
-        draw.text((40, 40), "placeholder art\n(AI_FAKE_IMAGES)", fill=(60, 60, 60))
+        # The reference count is painted in: a placeholder that looked identical
+        # with and without likeness photos would hide the one thing the 8.5d
+        # smoke needs to see happen.
+        note = f"\n+ {len(references)} likeness photo(s)" if references else ""
+        draw.text((40, 40), f"placeholder art\n(AI_FAKE_IMAGES){note}", fill=(60, 60, 60))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         log_event(logger, "ai.image.faked", model="fake-painter")

@@ -38,6 +38,12 @@ DEFAULT_ENTITLEMENTS: dict = {
     "ai_max_images_per_arc": 6,
     "ai_max_inputs_per_job": 12,
     "ai_max_regens_per_artifact": 3,  # first regen of each artifact is free
+    # Likeness (8.5d): illustrations OF the couple, drawn from photos they
+    # upload and consent to. Off by default and separately switchable, because
+    # it ships ahead of its full legal framing — this key is the interim control
+    # that turns it off for a plan, or for everyone, without a deploy.
+    "ai_likeness_enabled": False,
+    "ai_max_likeness_references": 3,
 }
 
 # Human labels for "not on your plan" messaging (kept server-side so the API's
@@ -54,12 +60,14 @@ _LIMIT_MESSAGES = {
     "ai_max_images_per_arc": "Illustration limit reached for this story",
     "ai_max_inputs_per_job": "That's more files than one AI run can take",
     "ai_max_regens_per_artifact": "Regeneration limit reached for this item",
+    "ai_max_likeness_references": "That's more photos of you than one story can use",
 }
 _FEATURE_MESSAGES = {
     "wishes_enabled": "The guestbook isn't available on this wedding's plan",
     "export_enabled": "Exports aren't available on this wedding's plan",
     "import_enabled": "Spreadsheet import isn't available on this wedding's plan",
     "ai_enabled": "AI assistance isn't available on this wedding's plan",
+    "ai_likeness_enabled": "Illustrations of you aren't available on this wedding's plan",
 }
 _UPGRADE_HINT = " — contact us to upgrade"
 

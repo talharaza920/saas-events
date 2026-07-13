@@ -29,6 +29,12 @@ from sqlalchemy.orm import Session
 
 from app.ai.credits import IMAGE_CREDIT_COST, credits_remaining
 from app.ai.ledger import record_usage
+from app.ai.likeness import (
+    likeness_enabled,
+    load_references,
+    max_references,
+    reference_inputs,
+)
 from app.ai.media import GeminiMedia, get_media_model, sniff_image_mime
 from app.ai.styles import compose_image_prompt
 from app.ai.types import ProviderError, ProviderRefusal
@@ -93,6 +99,7 @@ def render_image(
     job: AiJob,
     prompt: str,
     media: GeminiMedia,
+    references: list[tuple[bytes, str]] | None = None,
 ) -> str:
     """One image: generate → ledger → meter → store. Returns the stored URL.
     Raises ProviderRefusal (content filter), ProviderError (unusable bytes) or
@@ -100,7 +107,7 @@ def render_image(
 
     Shared by /illustrate and the per-panel regeneration path so an image is
     accounted for identically however it was asked for."""
-    data, usage = media.generate_image(prompt)
+    data, usage = media.generate_image(prompt, references)
     record_usage(db, wedding_id=job.wedding_id, job_id=job.id, kind="image",
                  usage=usage, images=1)
     try:
@@ -175,6 +182,10 @@ def illustrate(
 
     options = (job.state or {}).get("options") or {}
     media = media_model or get_media_model(settings)
+    # The couple's consented photos of themselves, loaded ONCE for the batch
+    # (8.5d). Every gate is inside job_references: no consent, no entitlement,
+    # no photo.
+    references = job_references(db, settings, job)
     charged = 0
     for key in wanted:
         if key not in images and len(images) >= cap:
@@ -186,9 +197,11 @@ def illustrate(
                 status_code=403,
                 detail="You've used all this wedding's AI credits — contact us to upgrade",
             )
-        prompt = compose_image_prompt(scenes[key], options)
+        prompt = compose_image_prompt(
+            scenes[key], options, has_references=bool(references)
+        )
         try:
-            url = render_image(db, settings, job, prompt, media)
+            url = render_image(db, settings, job, prompt, media, references)
         except ProviderRefusal as exc:
             log_event(logger, "ai.image.refused", job_id=str(job.id), target=key)
             refused[key] = str(exc)[:200]
@@ -213,8 +226,41 @@ def illustrate(
     record(
         db, "ai.job.illustrate", user=user, wedding=job.wedding,
         target_type="ai_job", target_id=job.id,
-        detail={"targets": wanted, "charged": charged, "refused": sorted(refused)},
+        detail={
+            "targets": wanted, "charged": charged, "refused": sorted(refused),
+            # Auditable: which panels were drawn from photographs of the couple.
+            "likeness_references": len(references),
+        },
     )
     db.commit()
     db.refresh(job)
     return job
+
+
+def job_references(
+    db: Session, settings: Settings, job: AiJob
+) -> list[tuple[bytes, str]]:
+    """The consented likeness photos to draw this job's people from (8.5d), or
+    an empty list — which is the pre-8.5d behaviour, faceless figures and all.
+
+    Raises 403 if photos are attached but the plan's `ai_likeness_enabled` has
+    since gone away. Silently rendering strangers instead would charge them a
+    credit for the wrong picture; the message says how to proceed (drop the
+    photos), which is the whole point of having a way out.
+
+    The plan's cap is applied HERE, not only at the references endpoint: a job
+    can also claim inputs by id at creation (`create_job`), which doesn't know a
+    reference from a voice note. The render path is the one place every photo
+    must pass through, so it is the one place the cap can't be walked around."""
+    inputs = reference_inputs(db, job)
+    if not inputs:
+        return []
+    if not likeness_enabled(db, job.wedding):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Illustrations of you aren't available on this wedding's plan — "
+                "remove your photos to illustrate the scenes without them"
+            ),
+        )
+    return load_references(settings, inputs[: max_references(db, job.wedding)])

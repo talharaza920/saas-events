@@ -27,6 +27,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.ai.likeness import check_style, reference_inputs
 from app.ai.schemas import DraftArc
 from app.ai.styles import MAX_STYLE_NOTE_CHARS, STYLE_PRESETS, resolve_style
 from app.audit_log import record
@@ -76,15 +77,22 @@ def edit_proposal(
         )
         proposal["user_edited"] = edited
 
+    references = reference_inputs(db, job)
     if style_preset is not None or style_note is not None:
+        # With photos of the couple attached, the photographic preset is refused
+        # here rather than silently downgraded at render: they asked for a look
+        # we won't produce OF THEM, and they deserve to be told which of the two
+        # they're keeping (app/ai/likeness.py).
+        check_style(style_preset, has_references=bool(references))
         _set_style(job, style_preset, style_note)
     # The style lives in the job's options, but the proposal is the only thing
     # that crosses the wire — echo it there so the review UI reads one surface.
     options = (job.state or {}).get("options") or {}
     proposal["style"] = {
-        "preset": resolve_style(options).key,
+        "preset": resolve_style(options, has_references=bool(references)).key,
         "note": options.get("style_note") or None,
     }
+    proposal["likeness"] = {"references": len(references)}
 
     job.proposal = proposal  # reassign: JSON columns don't track mutation
     record(

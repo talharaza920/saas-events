@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.jobs import _dump, check_circuit_breaker
 from app.ai.credits import credits_remaining
-from app.ai.images import illustration_targets, render_image
+from app.ai.images import illustration_targets, job_references, render_image
 from app.ai.ledger import record_usage
 from app.ai.media import GeminiMedia, get_media_model
 from app.ai.prompts import render_prompt
@@ -286,11 +286,17 @@ def _regen_beat_image(db, settings, job, target: str, steer, media_model):
     storage, bytes tracked for the sweeps)."""
     scenes = dict(illustration_targets(job.proposal))
     options = (job.state or {}).get("options") or {}
+    # Same references as /illustrate — a redo of a panel the couple are IN must
+    # not quietly come back with strangers in it.
+    references = job_references(db, settings, job)
     # The steer is untrusted: it rides the prompt as data, and the guardrail
     # sentences are appended after it (compose_image_prompt).
-    prompt = compose_image_prompt(scenes[target], options, steer=steer)
+    prompt = compose_image_prompt(
+        scenes[target], options, steer=steer, has_references=bool(references)
+    )
     media = media_model or get_media_model(settings)
-    url = render_image(db, settings, job, prompt, media)  # refusal/error → caller maps
+    # refusal/error → caller maps
+    url = render_image(db, settings, job, prompt, media, references)
     return url, {"provider": "google", "model": settings.gemini_image_model}
 
 
