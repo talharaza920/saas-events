@@ -12,9 +12,11 @@ deferrals. Phase 8 (AI wizard, `AI_WIZARD_PLAN.md`): 8.0–8.4b + 8.1c + the
 guests** (one intake: a spreadsheet read by a parser for free, a messy list read
 by the model, which asks about lines it can't read instead of guessing) +
 **8.5d, likeness** (photos of the couple, behind a consent box, drawn as
-stylised illustrations and never as photographs of them) are all done locally.
-Next: 8.5e theme presets. Remaining: Anthropic key, the approval-queue decision,
-**the likeness legal framing before public launch**, infra.)_
+stylised illustrations and never as photographs of them) + **8.5e, theme
+presets** (~10 platform-curated looks a couple starts from, then edits on top;
+console-managed catalogue) are all done locally. **Phase 8.5 is complete.**
+Remaining: Anthropic key, the approval-queue decision, **the likeness legal
+framing before public launch**, infra.)_
 
 ## Where things stand (one paragraph)
 
@@ -29,10 +31,10 @@ Sentry are the remaining infrastructure work, deliberately deferred until RT
 creates those accounts. A full-codebase review (2026-07-09) found no
 cross-tenant hole; its prioritised backlog lives in **`REVIEW_BACKLOG.md`**
 and the four P0 items (N+1 eager loading, introspection cache, Resend email
-seam, guest-API rate limiting) are done. Suite: **346 pytest** (offline) +
-**20/20 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs`) + **17/17 AI
-smoke** checks (`frontend/scripts/smoke-ai.mjs`, both against local dev
-servers); `tsc`/`eslint`/`next build` clean.
+seam, guest-API rate limiting) are done. Suite: **458 pytest, 1 skipped**
+(offline) + **25/25 E2E smoke** checks (`frontend/scripts/smoke-e2e.mjs`) +
+**57/57 AI smoke** checks (`frontend/scripts/smoke-ai.mjs`, both against local
+dev servers); `tsc`/`eslint`/`next build` clean.
 
 ## Phase 0 — Fork, personal-data scrub, security hardening
 
@@ -487,18 +489,59 @@ there).
   upload endpoint, `likeness_available` + `max_likeness_references` on credits,
   `likeness_blocked` on the style chips, `components/ai/LikenessPhotos.tsx`.
   Tests: `tests/test_ai_likeness.py` (14).
-- [ ] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
-  Phase 8.5; build order a→e; 8.5a–8.5d DONE):** 8.5e ~10 theme presets on the
-  Theme tab, platform-owned: a console Themes editor lets platform admins
-  add/edit/reorder/disable/delete presets (audited; applied weddings keep their
-  copied tokens).
+- [x] **8.5e Theme presets — DONE (local) 2026-07-14.** ~10 platform-curated
+  looks on the wedding Theme tab (`app/theme_presets.py`: the code-default
+  catalogue + validation), stored as a `platform_settings['theme_presets']` blob
+  with the same never-brick stance as prompts/entitlements (missing/broken blob
+  → code defaults; one rotten entry is skipped, the rest still serve; an
+  admin-emptied catalogue is a *choice*, not a fault). Validation is deliberately
+  narrow — hex colours, the numeric knobs, and **only the fonts next/font
+  actually loads** (a preset naming an unloaded family would silently render the
+  fallback stack, so it's refused). The couple's Theme tab reads the active list
+  (`GET …/theme/presets`, disabled withheld, swatches derived from the colours
+  when the console didn't pick them) and **applying one COPIES the tokens** onto
+  the wedding (`POST …/theme/preset`, replace-not-merge so no leftover of the old
+  look survives) — nothing links back, so a later console edit or delete can't
+  reach into a wedding that already applied it, and every token stays editable on
+  top. Platform console gains a **Themes tab**
+  (`components/platform/ThemesTab.tsx`: whole-catalogue GET/PUT so reorder /
+  disable / delete / edit is one audited save; the couple's
+  `components/admin/ThemePresets.tsx` cards fold into `ThemePanel`'s hand
+  editor). Tests: `tests/test_theme_presets.py` (24).
+- [x] **8.5 Guided wizard (plan FINAL 2026-07-12, see `AI_WIZARD_PLAN.md`
+  Phase 8.5; build order a→e) — ALL SLICES DONE (2026-07-14).**
 - [ ] **Blocked on RT:** Anthropic API key (Places + OpenAI + Gemini keys
   landed 2026-07-12, all live-verified; run the golden set on the Anthropic
   adapter once its key exists — it is the configured default text
   provider); decision on forcing AI-drafted weddings through the approval
   queue; likeness legal framing before public launch.
 
-## Test & verification status (2026-07-14, post-8.5d)
+## Test & verification status (2026-07-14, post-8.5e)
+
+- `pytest`: **458 passed, 1 skipped** (434 + `test_theme_presets.py` 24). The
+  new suite pins what 8.5e promises: ten presets ship in code and all validate; a
+  preset can only name fonts the app loads; the Theme tab never bricks (defaults
+  when nothing is stored, defaults on a structurally broken blob, one rotten
+  preset skipped while the rest serve, and an *emptied* catalogue stays empty
+  rather than resurrecting the defaults); the console sees disabled presets and
+  the couple does not; one save is reorder+disable+delete; bad presets are
+  refused with a reason (hex / unknown colour / can't-set-shadows / bad slug /
+  out-of-range / empty tokens) and duplicate ids rejected; every catalogue save
+  is audited; swatches are derived when the console didn't choose them; **applying
+  a preset REPLACES the theme** (pick Midnight, get Midnight — no magenta
+  leftover) and a hand edit then layers on top; editing or deleting a preset
+  afterwards never touches a wedding that took it (apply copied); a
+  disabled/unknown preset 404s on apply; and the full authz matrix (catalogue is
+  platform-admins-only; a non-member can't see or apply a wedding's themes; a
+  suspended wedding reads but can't apply). The shipped catalogue is proven
+  immutable-by-a-read (deepcopy, not a shared nested dict).
+- E2E smoke: **25/25** (21 + 4 for 8.5e) in a real browser — the platform
+  console Themes tab renders the catalogue editor, the couple's Theme tab offers
+  the preset cards, and applying Midnight & gold is API-verified to copy its
+  primary (`#D9B26A`) onto the wedding. `tsc`/`eslint`/`next build` clean; OpenAPI
+  + API types regenerated.
+
+## Test & verification status (2026-07-14, post-8.5d — kept for history)
 
 - `pytest`: **434 passed, 1 skipped** (419 + `test_ai_likeness.py` 15). The new
   suite pins what 8.5d promises: likeness is off in `DEFAULT_ENTITLEMENTS`; an

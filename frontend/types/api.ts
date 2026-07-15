@@ -409,6 +409,54 @@ export interface paths {
         patch: operations["update_content_api_w__wedding_slug__admin_content_patch"];
         trace?: never;
     };
+    "/api/w/{wedding_slug}/admin/theme/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Theme Presets
+         * @description The looks this couple can start from (8.5e) — the platform's catalogue,
+         *     disabled entries withheld, swatches filled in from each preset's colours when
+         *     the console didn't pick its own.
+         */
+        get: operations["list_theme_presets_api_w__wedding_slug__admin_theme_presets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/w/{wedding_slug}/admin/theme/preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply Theme Preset
+         * @description Start from a preset: its tokens are COPIED over the wedding's, replacing
+         *     them. Nothing links back, so a later console edit can't reach in here — and
+         *     every token stays editable afterwards (a preset is a starting point).
+         *
+         *     Replace, not merge: leftovers from the previous look (a hero-wash colour, a
+         *     font) would quietly corrupt the new one, and "I picked Midnight and got half
+         *     of Blush" is not a theme editor anybody trusts.
+         */
+        post: operations["apply_theme_preset_api_w__wedding_slug__admin_theme_preset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/w/{wedding_slug}/admin/story-arcs": {
         parameters: {
             query?: never;
@@ -1255,6 +1303,33 @@ export interface paths {
         get: operations["get_settings_approval_api_platform_settings_approval_get"];
         /** Put Settings Approval */
         put: operations["put_settings_approval_api_platform_settings_approval_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/theme-presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Theme Preset Catalogue
+         * @description The whole catalogue, disabled ones included — this is the editor's view.
+         *     (The couples' view is `/api/w/{slug}/admin/theme/presets`, active only.)
+         */
+        get: operations["get_theme_preset_catalogue_api_platform_theme_presets_get"];
+        /**
+         * Put Theme Preset Catalogue
+         * @description Replace the catalogue: add, edit, reorder, disable and delete are all this
+         *     one save. Weddings that already applied a preset are untouched — apply copied
+         *     the tokens onto them, so there is nothing here for an edit to reach.
+         */
+        put: operations["put_theme_preset_catalogue_api_platform_theme_presets_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -3551,6 +3626,49 @@ export interface components {
             } | null;
         };
         /**
+         * ThemePreset
+         * @description One curated look (8.5e). `tokens` is a `theme_tokens` patch — the shape a
+         *     wedding already stores — and is validated by app/theme_presets.py, which is
+         *     stricter than "any JSON": hex colours, loaded fonts only. `swatches` may be
+         *     empty, in which case the preset's own colours supply the preview dots.
+         */
+        ThemePreset: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Swatches */
+            swatches?: string[];
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Tokens */
+            tokens: {
+                [key: string]: unknown;
+            };
+        };
+        /** ThemePresetApply */
+        ThemePresetApply: {
+            /** Preset Id */
+            preset_id: string;
+        };
+        /**
+         * ThemePresetsPayload
+         * @description Whole-catalogue PUT — which is what makes reorder, disable and delete a
+         *     single audited save rather than four endpoints.
+         */
+        ThemePresetsPayload: {
+            /** Presets */
+            presets?: components["schemas"]["ThemePreset"][];
+        };
+        /**
          * TimelinePoint
          * @description One weekly bucket of the RSVP timeline (Monday-anchored).
          */
@@ -4657,6 +4775,76 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ContentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentAdmin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_theme_presets_api_w__wedding_slug__admin_theme_presets_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemePreset"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_theme_preset_api_w__wedding_slug__admin_theme_preset_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                wedding_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThemePresetApply"];
             };
         };
         responses: {
@@ -6402,6 +6590,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlatformSettingsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_theme_preset_catalogue_api_platform_theme_presets_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemePresetsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_theme_preset_catalogue_api_platform_theme_presets_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThemePresetsPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemePresetsPayload"];
                 };
             };
             /** @description Validation Error */

@@ -784,7 +784,20 @@ Built as planned, with four notes worth carrying:
   do cancel, expire, apply and the reap/purge sweeps — row and stored object
   together.
 
-### 8.5e — Theme presets (not AI, same release train)
+### 8.5e — Theme presets (not AI, same release train) — **BUILT 2026-07-14**
+
+Built as planned, with two notes worth carrying:
+- **Apply REPLACES, it does not merge.** `POST …/theme/preset` copies the
+  preset's tokens over the wedding's, wholesale — a content PATCH deep-merges, so
+  a leftover hero-wash colour or font from the previous look would quietly
+  corrupt the new one ("I picked Midnight and got half of Blush"). The hand
+  editor then layers its nine fields on the new base by setting the base FIRST.
+- **A font is not really data.** A preset may only name a face `next/font`
+  actually loads (`FONT_STACKS` in `app/theme_presets.py`, kept in step with
+  `frontend/theme/defaultThemeConfig.ts`); an unbounded font string from the
+  console would be a promise the frontend can't keep and would silently render
+  the fallback stack. Colours are hex, the numeric knobs are range-checked, and
+  `shadows` aren't preset-able because the editor and preview don't cover them.
 
 ~10 curated `theme_tokens` presets on the Theme tab; couples cycle through
 them, apply one, then edit any token on top — presets are starting points,

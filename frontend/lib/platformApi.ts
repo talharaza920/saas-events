@@ -2,7 +2,7 @@
 
 import type { components } from "@/types/api";
 
-import { AdminAuthError } from "./adminApi";
+import { AdminAuthError, type ThemePreset } from "./adminApi";
 import { getToken } from "./adminAuth";
 
 /**
@@ -30,6 +30,10 @@ export type AiPromptSave = components["schemas"]["AiPromptSave"];
 export type AiUsageSummary = components["schemas"]["AiUsageSummary"];
 export type AiUsageDay = components["schemas"]["AiUsageDay"];
 export type AiUsageTopWedding = components["schemas"]["AiUsageTopWedding"];
+// --- Theme presets (8.5e) ----------------------------------------------------
+// One preset type for both sides: the console edits exactly what a couple sees.
+export type { ThemePreset };
+export type ThemePresetsPayload = { presets: ThemePreset[] };
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getToken();
@@ -117,4 +121,15 @@ export const platformApi = {
       body: JSON.stringify({ provider, version, active }),
     }),
   aiUsage: () => req<AiUsageSummary>("/ai/usage"),
+
+  // --- Theme presets (8.5e) -----------------------------------------------
+  // Whole-catalogue GET/PUT: add, edit, reorder, disable and delete are all one
+  // audited save. Weddings that already applied a preset hold their own copy of
+  // the tokens, so nothing here reaches back into them.
+  themePresets: () => req<ThemePresetsPayload>("/theme-presets"),
+  putThemePresets: (presets: ThemePreset[]) =>
+    req<ThemePresetsPayload>("/theme-presets", {
+      method: "PUT",
+      body: JSON.stringify({ presets }),
+    }),
 };

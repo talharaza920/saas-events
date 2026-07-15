@@ -12,7 +12,8 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
-import { adminApi, type ContentAdmin } from "@/lib/adminApi";
+import ThemePresets from "@/components/admin/ThemePresets";
+import { adminApi, type ContentAdmin, type ThemePreset } from "@/lib/adminApi";
 import { defaultThemeConfig } from "@/theme/defaultThemeConfig";
 import type { ThemeColors } from "@/theme/types";
 
@@ -109,15 +110,52 @@ export default function ThemePanel({
   const [heading, setHeading] = useState(s(typo0.display) || defaultThemeConfig.typography.display);
   const [body, setBody] = useState(s(typo0.body) || defaultThemeConfig.typography.body);
 
+  // A preset the couple is trying on: its colours/fonts are already showing in
+  // the fields below, but it isn't theirs until they save.
+  const [pending, setPending] = useState<ThemePreset | null>(null);
+  // "Reset to defaults" pressed: the save must CLEAR the stored theme, not just
+  // repaint the nine fields on top of it (see handleSave).
+  const [clearing, setClearing] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /** Try a preset on: load the tokens this editor exposes into the fields. */
+  function previewPreset(preset: ThemePreset) {
+    const presetColors = preset.tokens.colors ?? {};
+    const presetTypo = preset.tokens.typography ?? {};
+    setPending(preset);
+    setClearing(false);
+    setColors((current) =>
+      Object.fromEntries(
+        EDITABLE_COLORS.map(({ token }) => [
+          token,
+          presetColors[token] ?? current[token],
+        ]),
+      ),
+    );
+    setHeading(presetTypo.display ?? defaultThemeConfig.typography.display);
+    setBody(presetTypo.body ?? defaultThemeConfig.typography.body);
+  }
 
   async function handleSave() {
     setSaving(true);
     setSaved(false);
     setError(null);
     try {
+      // A theme carries tokens this editor doesn't show (the hero wash, the
+      // paper tints, the radii), and a content PATCH deep-merges. So set the
+      // BASE first — apply the preset whole, or clear back to the template —
+      // otherwise the nine fields below would land on top of the previous look
+      // and leave a half-and-half theme. Hand edits then go on the new base.
+      if (pending) {
+        await adminApi.applyThemePreset(pending.id);
+        setPending(null);
+      } else if (clearing) {
+        await adminApi.updateContent({ theme_tokens: null });
+      }
+      setClearing(false);
       await adminApi.updateContent({
         theme_tokens: {
           colors,
@@ -135,6 +173,8 @@ export default function ThemePanel({
   }
 
   function resetDefaults() {
+    setPending(null);
+    setClearing(true);
     setColors(
       Object.fromEntries(EDITABLE_COLORS.map(({ token }) => [token, defaultThemeConfig.colors[token]])),
     );
@@ -151,6 +191,12 @@ export default function ThemePanel({
         Colours and fonts for the invitation. Changes show on the guest invite (the
         admin keeps its own look).
       </Typography>
+
+      <ThemePresets
+        selectedId={pending?.id ?? null}
+        onSelect={previewPreset}
+        disabled={saving}
+      />
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={3}>
         {/* Editor ---------------------------------------------------------- */}

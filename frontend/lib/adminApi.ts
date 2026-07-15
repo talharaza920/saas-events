@@ -1,6 +1,7 @@
 "use client";
 
 import type { components } from "@/types/api";
+import type { ThemeTokensOverride } from "@/theme/types";
 
 import { getToken } from "./adminAuth";
 
@@ -93,6 +94,21 @@ export type ContentUpdate = Omit<
   components["schemas"]["ContentUpdate"],
   "event_details" | "content" | "theme_tokens"
 > & { event_details?: Json; content?: Json; theme_tokens?: Json | null };
+/**
+ * A curated look (8.5e). The generated type marks the fields with server-side
+ * defaults optional; the API always sends them, and the console always edits
+ * them, so they're required here. `tokens` is a theme_tokens patch (the same
+ * shape a wedding stores) rather than the generated `Record<string, never>`.
+ */
+export type ThemePreset = Omit<
+  components["schemas"]["ThemePreset"],
+  "tokens" | "swatches" | "description" | "enabled"
+> & {
+  tokens: ThemeTokensOverride;
+  swatches: string[];
+  description: string;
+  enabled: boolean;
+};
 export type StoryArcAdmin = components["schemas"]["StoryArcAdmin"];
 export type StoryArcCreate = Omit<components["schemas"]["StoryArcCreate"], "content"> & {
   content?: Json;
@@ -218,6 +234,16 @@ export const adminApi = {
   getContent: () => req<ContentAdmin>("/content"),
   updateContent: (c: ContentUpdate) =>
     req<ContentAdmin>("/content", { method: "PATCH", body: JSON.stringify(c) }),
+
+  // Theme presets (8.5e). The catalogue is platform-owned; applying one COPIES
+  // its tokens onto the wedding (server-side, by id — the client never sends the
+  // tokens it was shown), and every token stays editable afterwards.
+  themePresets: () => req<ThemePreset[]>("/theme/presets"),
+  applyThemePreset: (presetId: string) =>
+    req<ContentAdmin>("/theme/preset", {
+      method: "POST",
+      body: JSON.stringify({ preset_id: presetId }),
+    }),
 
   listArcs: () => req<StoryArcAdmin[]>("/story-arcs"),
   createArc: (a: StoryArcCreate) =>

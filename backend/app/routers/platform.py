@@ -15,6 +15,7 @@ Phase 2, plans & entitlements with Phase 5).
   GET/PUT /settings/ai               → AI circuit breaker (kill switch, cost ceiling)
   GET/PUT /ai/prompts (+ /activate)  → prompt registry editor (versioned, rollback)
   GET  /ai/usage                     → AI spend widgets (Phase 8.4)
+  GET/PUT /theme-presets             → the curated theme catalogue (Phase 8.5e)
 """
 from __future__ import annotations
 
@@ -42,6 +43,12 @@ from app.db import get_db
 from app.emailer import send_email
 from app.entitlements import effective_entitlements
 from app.purge import purge_archived_weddings
+from app.theme_presets import (
+    PresetError,
+    get_theme_presets,
+    set_theme_presets,
+    validate_presets,
+)
 from app.timeutil import as_utc, db_bind_utc, utcnow
 from app.models import (
     AiJob,
@@ -81,6 +88,8 @@ from app.schemas import (
     PlatformUser,
     PlatformWedding,
     RuleTraceEntry,
+    ThemePreset,
+    ThemePresetsPayload,
     UserDisableUpdate,
     WeddingPlanAdmin,
 )
@@ -370,6 +379,40 @@ def put_settings_approval(
     record(db, "platform.settings", user=user, detail=rules)
     db.commit()
     return PlatformSettingsPayload(**rules)
+
+
+# --- Theme presets (8.5e) ------------------------------------------------------
+@router.get("/theme-presets", response_model=ThemePresetsPayload)
+def get_theme_preset_catalogue(db: Session = Depends(get_db)) -> ThemePresetsPayload:
+    """The whole catalogue, disabled ones included — this is the editor's view.
+    (The couples' view is `/api/w/{slug}/admin/theme/presets`, active only.)"""
+    return ThemePresetsPayload(presets=[ThemePreset(**p) for p in get_theme_presets(db)])
+
+
+@router.put("/theme-presets", response_model=ThemePresetsPayload)
+def put_theme_preset_catalogue(
+    payload: ThemePresetsPayload,
+    user: AuthedUser = Depends(require_platform_admin),
+    db: Session = Depends(get_db),
+) -> ThemePresetsPayload:
+    """Replace the catalogue: add, edit, reorder, disable and delete are all this
+    one save. Weddings that already applied a preset are untouched — apply copied
+    the tokens onto them, so there is nothing here for an edit to reach."""
+    try:
+        presets = validate_presets([p.model_dump() for p in payload.presets])
+    except PresetError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    set_theme_presets(db, presets)
+    record(
+        db, "platform.theme_presets", user=user,
+        detail={
+            "count": len(presets),
+            "enabled": [p["id"] for p in presets if p["enabled"]],
+            "disabled": [p["id"] for p in presets if not p["enabled"]],
+        },
+    )
+    db.commit()
+    return ThemePresetsPayload(presets=[ThemePreset(**p) for p in presets])
 
 
 # --- Users view ----------------------------------------------------------------

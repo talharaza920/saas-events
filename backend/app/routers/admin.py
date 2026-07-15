@@ -24,6 +24,7 @@ import csv
 import hashlib
 import io
 import secrets
+from copy import deepcopy
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -69,6 +70,7 @@ from app.models import (
     Wish,
 )
 from app.tenancy import capabilities_for, clamp_party_members
+from app.theme_presets import active_theme_presets, find_active_preset, swatches_for
 from app.timeutil import as_utc, utcnow
 from app.schemas import (
     AdminMe,
@@ -109,6 +111,8 @@ from app.schemas import (
     TimelineSummary,
     StoryArcCreate,
     StoryArcUpdate,
+    ThemePreset,
+    ThemePresetApply,
     UploadResult,
     WishAdmin,
     WishModerate,
@@ -862,6 +866,45 @@ def update_content(
         wedding.theme_tokens = (
             _deep_merge(wedding.theme_tokens or {}, tokens) if tokens is not None else None
         )
+    db.commit()
+    db.refresh(wedding)
+    return get_content(wedding)
+
+
+@router.get("/theme/presets", response_model=list[ThemePreset])
+def list_theme_presets(
+    wedding: Wedding = Depends(member_wedding), db: Session = Depends(get_db)
+) -> list[ThemePreset]:
+    """The looks this couple can start from (8.5e) — the platform's catalogue,
+    disabled entries withheld, swatches filled in from each preset's colours when
+    the console didn't pick its own."""
+    return [
+        ThemePreset(**{**p, "swatches": swatches_for(p)}) for p in active_theme_presets(db)
+    ]
+
+
+@router.post("/theme/preset", response_model=ContentAdmin)
+def apply_theme_preset(
+    payload: ThemePresetApply,
+    ctx: WeddingCtx = Depends(editor_ctx),
+    db: Session = Depends(get_db),
+) -> ContentAdmin:
+    """Start from a preset: its tokens are COPIED over the wedding's, replacing
+    them. Nothing links back, so a later console edit can't reach in here — and
+    every token stays editable afterwards (a preset is a starting point).
+
+    Replace, not merge: leftovers from the previous look (a hero-wash colour, a
+    font) would quietly corrupt the new one, and "I picked Midnight and got half
+    of Blush" is not a theme editor anybody trusts."""
+    wedding = ctx.wedding
+    preset = find_active_preset(db, payload.preset_id)
+    if preset is None:
+        raise HTTPException(status_code=404, detail="That theme isn't available")
+    wedding.theme_tokens = deepcopy(preset["tokens"])
+    record(
+        db, "wedding.theme.preset", user=ctx.user, wedding=wedding,
+        detail={"preset_id": preset["id"], "name": preset["name"]},
+    )
     db.commit()
     db.refresh(wedding)
     return get_content(wedding)

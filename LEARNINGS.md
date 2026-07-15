@@ -5,6 +5,31 @@ Entries below the "Carried over" line were curated from the predecessor
 single-wedding build (full history lives in that private repo); everything
 above it is new to the platform.
 
+## 2026-07-14 — Theme presets (8.5e)
+**Applying a preset must REPLACE the theme, not merge it.** A content PATCH
+deep-merges `theme_tokens` (that is how per-wedding overrides layer on the
+"Ever after" default), so patching a preset over an existing look leaves the
+old preset's tokens that the new one doesn't name — "I picked Midnight and got
+half of Blush". `POST …/theme/preset` sets the whole tokens object wholesale;
+`ThemePanel.handleSave` sets that base FIRST, then layers the nine hand-editor
+fields on top. Pinned by `test_applying_a_preset_replaces_the_theme_rather_than_merging_it`.
+
+**A font is not free-form data in a preset.** A face has to be registered with
+`next/font` in `app/layout.tsx`, so the console can only name one of the stacks
+the app actually loads (`FONT_STACKS` in `app/theme_presets.py`, kept in step
+with `frontend/theme/defaultThemeConfig.ts`) — otherwise a preset would silently
+render the fallback stack. Adding a fourth face is a frontend change AND a line
+in that allowlist; the coupling is deliberate.
+
+**`get_theme_presets` deepcopies the code defaults.** Returning the module-level
+`DEFAULT_THEME_PRESETS` (or a shallow `dict()`) hands every caller the SAME
+nested `tokens` dict, so one mutation would recolour the shipped catalogue for
+every tenant in the process. Same never-brick fallback stance as prompts /
+`DEFAULT_ENTITLEMENTS`: a missing or structurally broken blob → code defaults;
+one rotten entry is skipped and the rest still serve; but an admin-emptied
+catalogue is a stored empty list, NOT a broken one, so it must not resurrect the
+defaults.
+
 ## 2026-07-12 — AI wizard 8.1c: media/images/guests + what the golden set caught
 **Reasoning/thinking tokens eat the output budget — the eval caught it live.**
 The first golden-set run against gpt-5.1 at effort=high truncated 10/12 drafts:

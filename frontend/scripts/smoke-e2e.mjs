@@ -185,6 +185,39 @@ await page.screenshot({ path: `${OUT}/platform-console.png` });
 ok("platform: console loads for the dev platform admin", await visibleHas("Platform console"));
 ok("platform: weddings table lists the tenant", await visibleHas("/alex-and-sam"));
 
+// --- 8. Theme presets (8.5e) ----------------------------------------------------
+// Platform Themes tab renders the catalogue editor.
+await clickText("button", "Themes");
+await sleep(900);
+ok("platform: Themes tab shows the catalogue editor", await visibleHas("Theme catalogue"));
+await page.screenshot({ path: `${OUT}/platform-themes.png` });
+
+// The couple's Theme tab offers the presets…
+await page.goto("http://localhost:3000/alex-and-sam/admin", { waitUntil: "networkidle0" });
+await sleep(1600);
+await clickText("button", "Theme");
+await sleep(900);
+ok("admin: Theme tab offers presets to start from", await visibleHas("Start from a theme"));
+ok(
+  "admin: preset cards render",
+  await page.evaluate(() => !!document.querySelector('[data-testid^="theme-preset-"]')),
+);
+await page.screenshot({ path: `${OUT}/admin-theme-presets.png` });
+
+// …and applying one COPIES its tokens onto the wedding (API-verified, since a
+// screenshot can't prove the write). Apply Midnight & gold, expect its primary.
+const authed = { headers: { Authorization: `Bearer saas-events-local-dev` } };
+const applied = await fetch(`${API}/api/w/alex-and-sam/admin/theme/preset`, {
+  method: "POST",
+  headers: { ...authed.headers, "Content-Type": "application/json" },
+  body: JSON.stringify({ preset_id: "midnight-gold" }),
+}).then((r) => r.json());
+ok(
+  "admin: applying a preset copies its tokens onto the wedding",
+  applied.theme_tokens?.colors?.primary === "#D9B26A",
+  JSON.stringify(applied.theme_tokens?.colors?.primary),
+);
+
 await browser.close();
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed; shots in ${OUT}`);

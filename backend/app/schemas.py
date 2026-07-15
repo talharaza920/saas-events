@@ -1015,6 +1015,34 @@ class PlatformSettingsPayload(BaseModel):
     banned_words: list[str] = []
 
 
+class ThemePreset(BaseModel):
+    """One curated look (8.5e). `tokens` is a `theme_tokens` patch — the shape a
+    wedding already stores — and is validated by app/theme_presets.py, which is
+    stricter than "any JSON": hex colours, loaded fonts only. `swatches` may be
+    empty, in which case the preset's own colours supply the preview dots."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=2, max_length=40)
+    name: str = Field(min_length=1, max_length=40)
+    description: str = Field(default="", max_length=120)
+    swatches: list[str] = Field(default_factory=list, max_length=6)
+    enabled: bool = True
+    tokens: dict[str, Any]
+
+
+class ThemePresetsPayload(BaseModel):
+    """Whole-catalogue PUT — which is what makes reorder, disable and delete a
+    single audited save rather than four endpoints."""
+
+    model_config = ConfigDict(extra="forbid")
+    presets: list[ThemePreset] = Field(default_factory=list, max_length=40)
+
+
+class ThemePresetApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preset_id: str = Field(min_length=2, max_length=40)
+
+
 class PlatformUser(BaseModel):
     user_id: str
     email: str
